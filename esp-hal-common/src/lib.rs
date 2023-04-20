@@ -76,6 +76,8 @@ pub use self::usb_serial_jtag::UsbSerialJtag;
 pub mod aes;
 #[cfg(any(adc, dac))]
 pub mod analog;
+#[cfg(assist_debug)]
+pub mod assist_debug;
 pub mod clock;
 #[cfg(any(xtensa, all(riscv, systimer)))]
 pub mod delay;
