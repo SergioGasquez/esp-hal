@@ -146,6 +146,7 @@ pub struct Clocks<'d> {
     pub cpu_clock: HertzU32,
     pub apb_clock: HertzU32,
     pub xtal_clock: HertzU32,
+    #[cfg(esp32)]
     pub i2c_clock: HertzU32,
     #[cfg(esp32)]
     pub pwm_clock: HertzU32,
@@ -173,6 +174,7 @@ impl<'d> Clocks<'d> {
             cpu_clock: raw_clocks.cpu_clock,
             apb_clock: raw_clocks.apb_clock,
             xtal_clock: raw_clocks.xtal_clock,
+            #[cfg(esp32)]
             i2c_clock: raw_clocks.i2c_clock,
             #[cfg(esp32)]
             pwm_clock: raw_clocks.pwm_clock,
@@ -191,6 +193,7 @@ pub struct RawClocks {
     pub cpu_clock: HertzU32,
     pub apb_clock: HertzU32,
     pub xtal_clock: HertzU32,
+    #[cfg(esp32)]
     pub i2c_clock: HertzU32,
     #[cfg(esp32)]
     pub pwm_clock: HertzU32,
@@ -306,7 +309,6 @@ impl<'d> ClockControl<'d> {
                 cpu_clock: HertzU32::MHz(80),
                 apb_clock: HertzU32::MHz(40),
                 xtal_clock: HertzU32::MHz(40),
-                i2c_clock: HertzU32::MHz(40),
             },
         };
 
@@ -317,7 +319,6 @@ impl<'d> ClockControl<'d> {
                 cpu_clock: HertzU32::MHz(80),
                 apb_clock: HertzU32::MHz(40),
                 xtal_clock: HertzU32::MHz(26),
-                i2c_clock: HertzU32::MHz(26),
             },
         };
     }
@@ -353,7 +354,6 @@ impl<'d> ClockControl<'d> {
                 cpu_clock: cpu_clock_speed.frequency(),
                 apb_clock: apb_freq.frequency(),
                 xtal_clock: xtal_freq.frequency(),
-                i2c_clock: HertzU32::MHz(40),
             },
         }
     }
@@ -372,7 +372,6 @@ impl<'d> ClockControl<'d> {
                 cpu_clock: HertzU32::MHz(80),
                 apb_clock: HertzU32::MHz(80),
                 xtal_clock: HertzU32::MHz(40),
-                i2c_clock: HertzU32::MHz(40),
             },
         }
     }
@@ -405,7 +404,6 @@ impl<'d> ClockControl<'d> {
                 cpu_clock: cpu_clock_speed.frequency(),
                 apb_clock: apb_freq.frequency(),
                 xtal_clock: xtal_freq.frequency(),
-                i2c_clock: HertzU32::MHz(40),
             },
         }
     }
@@ -424,7 +422,6 @@ impl<'d> ClockControl<'d> {
                 cpu_clock: HertzU32::MHz(80),
                 apb_clock: HertzU32::MHz(80),
                 xtal_clock: HertzU32::MHz(40),
-                i2c_clock: HertzU32::MHz(40),
                 crypto_clock: HertzU32::MHz(160),
             },
         }
@@ -458,7 +455,6 @@ impl<'d> ClockControl<'d> {
                 cpu_clock: cpu_clock_speed.frequency(),
                 apb_clock: apb_freq.frequency(),
                 xtal_clock: xtal_freq.frequency(),
-                i2c_clock: HertzU32::MHz(40),
                 crypto_clock: HertzU32::MHz(160),
             },
         }
@@ -478,7 +474,6 @@ impl<'d> ClockControl<'d> {
                 cpu_clock: HertzU32::MHz(96),
                 apb_clock: HertzU32::MHz(32),
                 xtal_clock: HertzU32::MHz(32),
-                i2c_clock: HertzU32::MHz(32),
                 pll_48m_clock: HertzU32::MHz(48),
                 crypto_clock: HertzU32::MHz(96),
             },
@@ -513,7 +508,6 @@ impl<'d> ClockControl<'d> {
                 cpu_clock: cpu_clock_speed.frequency(),
                 apb_clock: apb_freq.frequency(),
                 xtal_clock: xtal_freq.frequency(),
-                i2c_clock: HertzU32::MHz(32),
                 pll_48m_clock: HertzU32::MHz(48),
                 crypto_clock: HertzU32::MHz(96),
             },
@@ -534,7 +528,6 @@ impl<'d> ClockControl<'d> {
                 cpu_clock: HertzU32::MHz(80),
                 apb_clock: HertzU32::MHz(80),
                 xtal_clock: HertzU32::MHz(40),
-                i2c_clock: HertzU32::MHz(80),
             },
         }
     }
@@ -553,7 +546,6 @@ impl<'d> ClockControl<'d> {
                 cpu_clock: cpu_clock_speed.frequency(),
                 apb_clock: HertzU32::MHz(80),
                 xtal_clock: HertzU32::MHz(40),
-                i2c_clock: HertzU32::MHz(40),
             },
         }
     }
@@ -572,7 +564,6 @@ impl<'d> ClockControl<'d> {
                 cpu_clock: HertzU32::MHz(80),
                 apb_clock: HertzU32::MHz(80),
                 xtal_clock: HertzU32::MHz(40),
-                i2c_clock: HertzU32::MHz(40),
                 crypto_pwm_clock: HertzU32::MHz(160),
             },
         }
@@ -592,7 +583,6 @@ impl<'d> ClockControl<'d> {
                 cpu_clock: cpu_clock_speed.frequency(),
                 apb_clock: HertzU32::MHz(80),
                 xtal_clock: HertzU32::MHz(40),
-                i2c_clock: HertzU32::MHz(40),
                 crypto_pwm_clock: HertzU32::MHz(160),
             },
         }
