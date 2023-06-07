@@ -161,12 +161,18 @@ pub(crate) fn esp32h2_rtc_bbpll_enable() {
     pmu.imm_hp_ck_power
         .modify(|_, w| w.tie_high_global_bbpll_icg().set_bit());
 
-    let pcr = unsafe { &*crate::peripherals::PCR::PTR };
+    // TODO: H2 and C6 are the same in esp-idf. Why do we haver to switch spimem
+    // to PLL 64Mhz clock?
+    // H2: https://github.com/espressif/esp-idf/blob/d00e7b5af897cc5fafe51fae19c57f0313b81edf/components/hal/esp32h2/include/hal/clk_tree_ll.h#L68-L76
+    // C6: https://github.com/espressif/esp-idf/blob/d00e7b5af897cc5fafe51fae19c57f0313b81edf/components/hal/esp32c6/include/hal/clk_tree_ll.h#L72
+    //    - https://github.com/esp-rs/esp-hal/blob/main/esp-hal-common/src/clock/clocks_ll/esp32c6.rs#L134
 
-    // switch spimem to PLL 64Mhz clock
-    unsafe {
-        pcr.mspi_conf.modify(|_, w| w.mspi_clk_sel().bits(0b10));
-    }
+    // let pcr = unsafe { &*crate::peripherals::PCR::PTR };
+
+    // // switch spimem to PLL 64Mhz clock
+    // unsafe {
+    //     pcr.mspi_conf.modify(|_, w| w.mspi_clk_sel().bits(0b10));
+    // }
 }
 
 pub(crate) fn esp32h2_rtc_update_to_xtal(freq: XtalClock, _div: u8) {
