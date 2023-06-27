@@ -163,6 +163,8 @@ impl DmaLinkedListDw0 for &mut u32 {
         ((**self & (mask << bit_s)) >> bit_s).into()
     }
 }
+/// Marks channels as useable for SHA
+pub trait ShaPeripheral: PeripheralMarker {}
 
 /// Marks channels as useable for SPI
 pub trait SpiPeripheral: PeripheralMarker {}

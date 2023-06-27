@@ -3,6 +3,7 @@
 use core::convert::Infallible;
 
 use crate::{
+    dma::{DmaError, DmaPeripheral, Rx, Tx},
     peripheral::{Peripheral, PeripheralRef},
     peripherals::SHA,
     system::PeripheralClockControl,
@@ -29,6 +30,22 @@ const U32_FROM_BYTES: fn([u8; 4]) -> u32 = u32::from_be_bytes;
 
 #[cfg(not(esp32))]
 const U32_FROM_BYTES: fn([u8; 4]) -> u32 = u32::from_ne_bytes;
+
+#[allow(unused)]
+const MAX_DMA_SIZE: usize = 32736;
+
+#[derive(Debug, Clone, Copy)]
+pub enum Error {
+    DmaError(DmaError),
+    MaxDmaTransferSizeExceeded,
+    Unknown,
+}
+
+impl From<DmaError> for Error {
+    fn from(value: DmaError) -> Self {
+        Error::DmaError(value)
+    }
+}
 
 // The alignment helper helps you write to registers that only accepts u32 using
 // regular u8s (bytes) It keeps a write buffer of 4 u8 (could in theory be 3 but
@@ -188,7 +205,6 @@ pub enum ShaMode {
     SHA512_256,
     // SHA512_(u16) // Max 511
 }
-
 // TODO: Maybe make Sha Generic (Sha<Mode>) in order to allow for better
 // compiler optimizations? (Requires complex const generics which isn't stable
 // yet)
@@ -521,3 +537,195 @@ impl<'d> Sha<'d> {
         Ok(())
     }
 }
+
+pub mod dma {
+    use core::{marker::PhantomData, mem};
+
+    use embedded_dma::{ReadBuffer, WriteBuffer};
+    use fugit::HertzU32;
+
+    use super::{Sha, ShaInstance, MAX_DMA_SIZE};
+    use crate::{
+        clock::Clocks,
+        dma::{Channel, DmaTransfer, DmaTransferRxTx, Rx, ShaPeripheral, Tx},
+        peripheral::PeripheralRef,
+        peripherals::SHA,
+    };
+
+    pub trait WithDmaSha<'d, RX, TX, P>
+    where
+        TX: Tx,
+        RX: Rx,
+        P: ShaPeripheral,
+    {
+        fn with_dma(self, channel: Channel<TX, RX, P>) -> ShaDma<'d, TX, RX, P>;
+    }
+
+    impl<'d, RX, TX, P> WithDmaSha<'d, RX, TX, P> for Sha<'d>
+    where
+        TX: Tx,
+        RX: Rx,
+        P: ShaPeripheral,
+    {
+        fn with_dma(self, mut channel: Channel<TX, RX, P>) -> ShaDma<'d, TX, RX, P> {
+            channel.tx.init_channel(); // no need to call this for both, TX and RX
+
+            ShaDma {
+                sha: self.sha,
+                channel,
+            }
+        }
+    }
+
+    /// An in-progress DMA transfer
+    pub struct ShaDmaTransferRxTx<'d, TX, RX, P, RBUFFER, TBUFFER>
+    where
+        TX: Tx,
+        RX: Rx,
+        P: ShaPeripheral,
+    {
+        sha_dma: ShaDma<'d, TX, RX, P>,
+        rbuffer: RBUFFER,
+        tbuffer: TBUFFER,
+    }
+
+    impl<'d, TX, RX, P, RXBUF, TXBUF> DmaTransferRxTx<RXBUF, TXBUF, ShaDma<'d, TX, RX, P>>
+        for ShaDmaTransferRxTx<'d, TX, RX, P, RXBUF, TXBUF>
+    where
+        TX: Tx,
+        RX: Rx,
+        P: ShaPeripheral,
+    {
+        /// Wait for the DMA transfer to complete and return the buffers and the
+        /// SHA instance.
+        fn wait(mut self) -> (RXBUF, TXBUF, ShaDma<'d, TX, RX, P>) {
+            todo!("wait for sha transfer")
+        }
+
+        /// Check if the DMA transfer is complete
+        fn is_done(&self) -> bool {
+            todo!("is_done for sha transfer")
+        }
+    }
+
+    impl<'d, TX, RX, P, RXBUF, TXBUF> Drop for ShaDmaTransferRxTx<'d, TX, RX, P, RXBUF, TXBUF>
+    where
+        TX: Tx,
+        RX: Rx,
+        P: ShaPeripheral,
+    {
+        fn drop(&mut self) {
+            todo!("drop for sha transfer");
+        }
+    }
+
+    /// An in-progress DMA transfer.
+    pub struct ShaDmaTransfer<'d, TX, RX, P, BUFFER>
+    where
+        TX: Tx,
+        RX: Rx,
+        P: ShaPeripheral,
+    {
+        sha_dma: ShaDma<'d, TX, RX, P>,
+        buffer: BUFFER,
+    }
+
+    impl<'d, TX, RX, P, BUFFER> DmaTransfer<BUFFER, ShaDma<'d, TX, RX, P>>
+        for ShaDmaTransfer<'d, TX, RX, P, BUFFER>
+    where
+        TX: Tx,
+        RX: Rx,
+        P: ShaPeripheral,
+    {
+        /// Wait for the DMA transfer to complete and return the buffers and the
+        /// SHA instance.
+        fn wait(mut self) -> (BUFFER, ShaDma<'d, TX, RX, P>) {
+            todo!("wait for sha transfer")
+        }
+
+        /// Check if the DMA transfer is complete
+        fn is_done(&self) -> bool {
+            todo!("is_done for sha transfer")
+        }
+    }
+
+    impl<'d, TX, RX, P, BUFFER> Drop for ShaDmaTransfer<'d, TX, RX, P, BUFFER>
+    where
+        TX: Tx,
+        RX: Rx,
+        P: ShaPeripheral,
+    {
+        fn drop(&mut self) {
+            todo!("drop for sha transfer");
+        }
+    }
+
+    /// A DMA capable SHA instance.
+    pub struct ShaDma<'d, TX, RX, P>
+    where
+        TX: Tx,
+        RX: Rx,
+        P: ShaPeripheral,
+    {
+        pub(crate) sha: PeripheralRef<'d, SHA>,
+        pub(crate) channel: Channel<TX, RX, P>,
+    }
+
+    impl<'d, TX, RX, P> ShaDma<'d, TX, RX, P>
+    where
+        TX: Tx,
+        RX: Rx,
+        P: ShaPeripheral,
+    {
+        /// Perform a DMA write.
+        ///
+        /// This will return a [ShaDmaTransfer] owning the buffer(s) and the SHA
+        /// instance. The maximum amount of data to be sent is 32736
+        /// bytes.
+        pub fn dma_write<TXBUF>(
+            mut self,
+            words: TXBUF,
+        ) -> Result<ShaDmaTransfer<'d, TX, RX, P, TXBUF>, super::Error>
+        where
+            TXBUF: ReadBuffer<Word = u8>,
+        {
+            todo!("dma_write for sha transfer")
+        }
+
+        /// Perform a DMA read.
+        ///
+        /// This will return a [ShaDmaTransfer] owning the buffer(s) and the SHA
+        /// instance. The maximum amount of data to be received is 32736
+        /// bytes.
+        pub fn dma_read<RXBUF>(
+            mut self,
+            mut words: RXBUF,
+        ) -> Result<ShaDmaTransfer<'d, TX, RX, P, RXBUF>, super::Error>
+        where
+            RXBUF: WriteBuffer<Word = u8>,
+        {
+            todo!("dma_read for sha transfer")
+        }
+
+        /// Perform a DMA transfer.
+        ///
+        /// This will return a [ShaDmaTransfer] owning the buffer(s) and the SHA
+        /// instance. The maximum amount of data to be sent/received is
+        /// 32736 bytes.
+        pub fn dma_transfer<TXBUF, RXBUF>(
+            mut self,
+            words: TXBUF,
+            mut read_buffer: RXBUF,
+        ) -> Result<ShaDmaTransferRxTx<'d, TX, RX, P, RXBUF, TXBUF>, super::Error>
+        where
+            TXBUF: ReadBuffer<Word = u8>,
+            RXBUF: WriteBuffer<Word = u8>,
+        {
+            todo!("dma_transfer for sha transfer");
+        }
+    }
+}
+
+pub trait ShaInstance {}
+
+impl ShaInstance for crate::peripherals::SHA {}
