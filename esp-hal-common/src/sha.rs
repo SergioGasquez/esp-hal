@@ -603,10 +603,10 @@ pub mod dma {
         C::P: ShaPeripheral,
     {
         /// Wait for the DMA transfer to complete and return the buffers and the
-        /// SPI instance.
+        /// SHA instance.
         fn wait(mut self) -> (RXBUF, TXBUF, ShaDma<'d, C>) {
             todo!();
-            // self.spi_dma.spi.flush().ok(); // waiting for the DMA transfer is not enough
+            // self.sha_dma.sha.flush().ok(); // waiting for the DMA transfer is not enough
 
             // `DmaTransfer` needs to have a `Drop` implementation, because we accept
             // managed buffers that can free their memory on drop. Because of that
@@ -637,7 +637,7 @@ pub mod dma {
         C::P: ShaPeripheral,
     {
         fn drop(&mut self) {
-            // self.sha_dma.spi.flush().ok();
+            // self.sha_dma.sha.flush_data();
         }
     }
 
@@ -657,10 +657,10 @@ pub mod dma {
         C::P: ShaPeripheral,
     {
         /// Wait for the DMA transfer to complete and return the buffers and the
-        /// SPI instance.
+        /// SHA instance.
         fn wait(mut self) -> (BUFFER, ShaDma<'d, C>) {
             todo!();
-            // self.spi_dma.spi.flush().ok(); // waiting for the DMA transfer is not enough
+            // self.sha_dma.sha.flush().ok(); // waiting for the DMA transfer is not enough
 
             // `DmaTransfer` needs to have a `Drop` implementation, because we accept
             // managed buffers that can free their memory on drop. Because of that
@@ -691,11 +691,11 @@ pub mod dma {
     {
         fn drop(&mut self) {
             todo!();
-            // self.spi_dma.spi.flush().ok();
+            // self.sha_dma.sha.flush().ok();
         }
     }
 
-    /// A DMA capable SPI instance.
+    /// A DMA capable SHA instance.
     pub struct ShaDma<'d, C>
     where
         C: ChannelTypes,
@@ -739,7 +739,7 @@ pub mod dma {
 
         /// Perform a DMA read.
         ///
-        /// This will return a [ShaDmaTransfer] owning the buffer(s) and the SPI
+        /// This will return a [ShaDmaTransfer] owning the buffer(s) and the SHA
         /// instance. The maximum amount of data to be received is 32736
         /// bytes.
         pub fn dma_read<RXBUF>(
@@ -756,7 +756,7 @@ pub mod dma {
             }
 
             todo!();
-            // self.spi
+            // self.sha
             //     .start_read_bytes_dma(ptr, len, &mut self.channel.rx)?;
             Ok(ShaDmaTransfer {
                 sha_dma: self,
@@ -876,14 +876,14 @@ pub mod dma {
 
             // reset_dma_before_load_dma_dscr(reg_block);
             // tx.prepare_transfer(
-            //     self.dma_peripheral(),
+            //     DmaPeripheral::Sha,
             //     false,
             //     write_buffer_ptr,
             //     write_buffer_len,
             // )?;
             // rx.prepare_transfer(
             //     false,
-            //     self.dma_peripheral(),
+            //     DmaPeripheral::Sha,
             //     read_buffer_ptr,
             //     read_buffer_len,
             // )?;
@@ -935,7 +935,7 @@ pub mod dma {
             // self.update();
 
             // reset_dma_before_load_dma_dscr(reg_block);
-            // tx.prepare_transfer(self.dma_peripheral(), false, ptr, len)?;
+            // tx.prepare_transfer(DmaPeripheral::Sha, false, ptr, len)?;
 
             // self.clear_dma_interrupts();
             // reset_dma_before_usr_cmd(reg_block);
@@ -964,7 +964,7 @@ pub mod dma {
             // self.update();
 
             // reset_dma_before_load_dma_dscr(reg_block);
-            // rx.prepare_transfer(false, self.dma_peripheral(), ptr, len)?;
+            // rx.prepare_transfer(false, DmaPeripheral::Sha, ptr, len)?;
 
             // self.clear_dma_interrupts();
             // reset_dma_before_usr_cmd(reg_block);
@@ -972,10 +972,6 @@ pub mod dma {
             // reg_block.cmd.modify(|_, w| w.usr().set_bit());
 
             return Ok(());
-        }
-
-        fn dma_peripheral(&self) -> DmaPeripheral {
-            DmaPeripheral::Sha
         }
 
         #[cfg(any(esp32c2, esp32c3, esp32c6, esp32h2, esp32s3))]
