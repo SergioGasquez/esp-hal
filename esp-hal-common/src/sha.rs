@@ -305,6 +305,11 @@ impl<'d> Sha<'d> {
                 if self.first_run {
                     // Set SHA_DMA_START_REG
                     self.sha.dma_start.write(|w| unsafe { w.bits(1) });
+                    // TODO: Shall we also clear the interrupt here?
+                    // TODO: Implement DMA interrupt when doing async. When interrupt occurs, clear
+                    // it (CLEAR_IRQ)
+                    // Set SHA_DMA_INT_ENA_REG
+                    self.sha.irq_ena.write(|w| unsafe { w.bits(1) });
                     self.first_run = false;
                 } else {
                     // SET SHA_DMA_CONTINUE_REG
