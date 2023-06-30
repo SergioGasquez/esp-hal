@@ -183,6 +183,7 @@ impl AlignmentHelper {
 pub struct Sha<'d> {
     sha: PeripheralRef<'d, SHA>,
     mode: ShaMode,
+    operation_mode: OperationMode,
     alignment_helper: AlignmentHelper,
     cursor: usize,
     first_run: bool,
@@ -204,6 +205,14 @@ pub enum ShaMode {
     #[cfg(any(esp32s2, esp32s3))]
     SHA512_256,
     // SHA512_(u16) // Max 511
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum OperationMode {
+    Typical,
+    // ESP32 does not support DMA mode
+    #[cfg(not(esp32))]
+    DMA,
 }
 
 // TODO: Maybe make Sha Generic (Sha<Mode>) in order to allow for better
@@ -263,6 +272,7 @@ impl<'d> Sha<'d> {
         Self {
             sha,
             mode,
+            operation_mode: OperationMode::Typical,
             cursor: 0,
             first_run: true,
             finished: false,
@@ -280,18 +290,26 @@ impl<'d> Sha<'d> {
 
     #[cfg(not(esp32))]
     fn process_buffer(&mut self) {
-        // FIXME: SHA_START_REG & SHA_CONTINUE_REG are wrongly marked as RO (they are
-        // WO)
-        if self.first_run {
-            // Set SHA_START_REG
-            unsafe {
-                self.sha.start.as_ptr().write_volatile(1u32);
+        match self.operation_mode {
+            OperationMode::Typical => {
+                if self.first_run {
+                    // Set SHA_START_REG
+                    self.sha.start.write(|w| unsafe { w.bits(1) });
+                    self.first_run = false;
+                } else {
+                    // SET SHA_CONTINUE_REG
+                    self.sha.continue_.write(|w| unsafe { w.bits(1) });
+                }
             }
-            self.first_run = false;
-        } else {
-            // SET SHA_CONTINUE_REG
-            unsafe {
-                self.sha.continue_.as_ptr().write_volatile(1u32);
+            OperationMode::DMA => {
+                if self.first_run {
+                    // Set SHA_DMA_START_REG
+                    self.sha.dma_start.write(|w| unsafe { w.bits(1) });
+                    self.first_run = false;
+                } else {
+                    // SET SHA_DMA_CONTINUE_REG
+                    self.sha.dma_continue.write(|w| unsafe { w.bits(1) });
+                }
             }
         }
     }
@@ -318,6 +336,7 @@ impl<'d> Sha<'d> {
 
     fn chunk_length(&self) -> usize {
         return match self.mode {
+            // 512 bits (64 bytes) blocks
             ShaMode::SHA1 | ShaMode::SHA256 => 64,
             #[cfg(not(esp32))]
             ShaMode::SHA224 => 64,
