@@ -5,7 +5,7 @@ use core::convert::Infallible;
 use crate::{
     dma::DmaError,
     peripheral::{Peripheral, PeripheralRef},
-    peripherals::{sha::RegisterBlock, SHA},
+    peripherals::SHA,
     system::PeripheralClockControl,
 };
 
@@ -305,11 +305,14 @@ impl<'d> Sha<'d> {
                 if self.first_run {
                     // Set SHA_DMA_START_REG
                     self.sha.dma_start.write(|w| unsafe { w.bits(1) });
-                    // TODO: Shall we also clear the interrupt here?
-                    // TODO: Implement DMA interrupt when doing async. When interrupt occurs, clear
-                    // it (CLEAR_IRQ)
+                    // TODO clear_dma_interrupts(); ?
                     // Set SHA_DMA_INT_ENA_REG
                     self.sha.irq_ena.write(|w| unsafe { w.bits(1) });
+                    // Set the number of blocks in DMA_BLOCK_NUM
+                    self.sha
+                        .dma_block_num
+                        .write(|w| unsafe { w.bits(self.chunk_length() as u32) });
+
                     self.first_run = false;
                 } else {
                     // SET SHA_DMA_CONTINUE_REG
@@ -339,6 +342,7 @@ impl<'d> Sha<'d> {
         }
     }
 
+    // Return block size (in bytes) for a given SHA type
     fn chunk_length(&self) -> usize {
         return match self.mode {
             // 512 bits (64 bytes) blocks
@@ -365,6 +369,7 @@ impl<'d> Sha<'d> {
         self.sha.busy.read().bits() != 0
     }
 
+    // Return the output length (in bytes) for a given SHA type
     pub fn digest_length(&self) -> usize {
         match self.mode {
             ShaMode::SHA1 => 20,
@@ -457,7 +462,7 @@ impl<'d> Sha<'d> {
         Ok(remaining)
     }
 
-    // Finish of the calculation (if not alreaedy) and copy result to output
+    // Finish of the calculation (if not already) and copy result to output
     // After `finish()` is called `update()`s will contribute to a new hash which
     // can be calculated again with `finish()`.
     //
@@ -569,7 +574,7 @@ pub mod dma {
 
     use embedded_dma::{ReadBuffer, WriteBuffer};
 
-    use super::{Sha, MAX_DMA_SIZE};
+    use super::{OperationMode, Sha, MAX_DMA_SIZE};
     use crate::{
         dma::{
             Channel,
@@ -600,10 +605,13 @@ pub mod dma {
         C: ChannelTypes,
         C::P: ShaPeripheral,
     {
-        fn with_dma(self, mut channel: Channel<'d, C>) -> ShaDma<'d, C> {
+        fn with_dma(mut self, mut channel: Channel<'d, C>) -> ShaDma<'d, C> {
             channel.tx.init_channel(); // no need to call this for both, TX and RX
-
-            ShaDma { sha: self, channel }
+            self.operation_mode = OperationMode::DMA;
+            ShaDma {
+                sha: self.sha,
+                channel,
+            }
         }
     }
 
@@ -626,8 +634,9 @@ pub mod dma {
     {
         /// Wait for the DMA transfer to complete and return the buffers and the
         /// SHA instance.
-        fn wait(mut self) -> (RXBUF, TXBUF, ShaDma<'d, C>) {
-            self.sha_dma.sha.flush_data(); // waiting for the DMA transfer is not enough
+        fn wait(self) -> (RXBUF, TXBUF, ShaDma<'d, C>) {
+            // todo!();
+            // self.sha_dma.sha.flush_data(); // waiting for the DMA transfer is not enough
 
             // `DmaTransfer` needs to have a `Drop` implementation, because we accept
             // managed buffers that can free their memory on drop. Because of that
@@ -658,7 +667,8 @@ pub mod dma {
         C::P: ShaPeripheral,
     {
         fn drop(&mut self) {
-            self.sha_dma.sha.flush_data();
+            // todo!();
+            // self.sha_dma.sha.flush_data();
         }
     }
 
@@ -679,8 +689,9 @@ pub mod dma {
     {
         /// Wait for the DMA transfer to complete and return the buffers and the
         /// SHA instance.
-        fn wait(mut self) -> (BUFFER, ShaDma<'d, C>) {
-            self.sha_dma.sha.flush_data(); // waiting for the DMA transfer is not enough
+        fn wait(self) -> (BUFFER, ShaDma<'d, C>) {
+            // todo!();
+            // self.sha_dma.sha.flush_data(); // waiting for the DMA transfer is not enough
 
             // `DmaTransfer` needs to have a `Drop` implementation, because we accept
             // managed buffers that can free their memory on drop. Because of that
@@ -710,7 +721,8 @@ pub mod dma {
         C::P: ShaPeripheral,
     {
         fn drop(&mut self) {
-            self.sha_dma.sha.flush_data();
+            // self.sha_dma.sha.flush_data();
+            // todo!();
         }
     }
 
@@ -720,7 +732,7 @@ pub mod dma {
         C: ChannelTypes,
         C::P: ShaPeripheral,
     {
-        pub(crate) sha: Sha<'d>,
+        pub(crate) sha: PeripheralRef<'d, SHA>,
         pub(crate) channel: Channel<'d, C>,
     }
 
@@ -747,10 +759,7 @@ pub mod dma {
                 return Err(super::Error::MaxDmaTransferSizeExceeded);
             }
 
-            todo!();
-            // let test = self.sha;
-            // self.sha
-            //     .start_write_bytes_dma(ptr, len, &mut self.channel.tx)?;
+            self.start_write_bytes_dma(ptr, len)?;
             Ok(ShaDmaTransfer {
                 sha_dma: self,
                 buffer: words,
@@ -775,9 +784,7 @@ pub mod dma {
                 return Err(super::Error::MaxDmaTransferSizeExceeded);
             }
 
-            // self.sha
-            //     .start_read_bytes_dma(ptr, len, &mut self.channel.rx)?;
-            // self.start_read_bytes_dma(ptr, len, &mut self.channel.rx)?;
+            self.start_read_bytes_dma(ptr, len)?;
             Ok(ShaDmaTransfer {
                 sha_dma: self,
                 buffer: words,
@@ -798,10 +805,21 @@ pub mod dma {
             TXBUF: ReadBuffer<Word = u8>,
             RXBUF: WriteBuffer<Word = u8>,
         {
-            todo!();
+            let (write_ptr, write_len) = unsafe { words.read_buffer() };
+            let (read_ptr, read_len) = unsafe { read_buffer.write_buffer() };
+
+            if write_len > MAX_DMA_SIZE || read_len > MAX_DMA_SIZE {
+                return Err(super::Error::MaxDmaTransferSizeExceeded);
+            }
+
+            self.start_transfer_dma(write_ptr, write_len, read_ptr, read_len)?;
+            Ok(ShaDmaTransferRxTx {
+                sha_dma: self,
+                rbuffer: read_buffer,
+                tbuffer: words,
+            })
         }
 
-        // InstanceDma
         fn transfer_in_place_dma<'w, TXBUF, RXBUF>(
             &mut self,
             words: &'w mut [u8],
@@ -818,12 +836,11 @@ pub mod dma {
                     chunk.len(),
                     chunk.as_mut_ptr(),
                     chunk.len(),
-                    tx,
-                    rx,
                 )?;
 
                 while !tx.is_done() && !rx.is_done() {}
-                self.sha.flush_data();
+                // todo!();
+                // self.sha.flush_data();
             }
 
             return Ok(words);
@@ -853,12 +870,11 @@ pub mod dma {
                     write_len,
                     unsafe { read_buffer.as_mut_ptr().offset(read_idx) },
                     read_len,
-                    tx,
-                    rx,
                 )?;
 
                 while !tx.is_done() && !rx.is_done() {}
-                self.sha.flush_data();
+                // todo!();
+                // self.sha.flush_data();
 
                 idx += MAX_DMA_SIZE as isize;
                 if idx >= write_buffer.len() as isize && idx >= read_buffer.len() as isize {
@@ -869,48 +885,30 @@ pub mod dma {
             return Ok(read_buffer);
         }
 
-        fn start_transfer_dma<'w, TXBUF, RXBUF>(
+        fn start_transfer_dma<'w>(
             &mut self,
             write_buffer_ptr: *const u8,
             write_buffer_len: usize,
             read_buffer_ptr: *mut u8,
             read_buffer_len: usize,
-            tx: &mut TXBUF,
-            rx: &mut RXBUF,
-        ) -> Result<(), super::Error>
-        where
-            TXBUF: Tx,
-            RXBUF: Rx,
-        {
-            todo!();
-            // let reg_block = self.register_block();
-            // self.configure_datalen(usize::max(read_buffer_len, write_buffer_len) as u32 *
-            // 8);
+        ) -> Result<(), super::Error> {
+            self.channel.tx.is_done();
+            self.channel.rx.is_done();
 
-            // tx.is_done();
-            // rx.is_done();
+            self.channel.tx.prepare_transfer(
+                DmaPeripheral::Sha,
+                false,
+                write_buffer_ptr,
+                write_buffer_len,
+            )?;
+            self.channel.rx.prepare_transfer(
+                false,
+                DmaPeripheral::Sha,
+                read_buffer_ptr,
+                read_buffer_len,
+            )?;
 
-            // self.enable_dma();
-            // self.update();
-
-            // reset_dma_before_load_dma_dscr(reg_block);
-            // tx.prepare_transfer(
-            //     DmaPeripheral::Sha,
-            //     false,
-            //     write_buffer_ptr,
-            //     write_buffer_len,
-            // )?;
-            // rx.prepare_transfer(
-            //     false,
-            //     DmaPeripheral::Sha,
-            //     read_buffer_ptr,
-            //     read_buffer_len,
-            // )?;
-
-            // self.clear_dma_interrupts();
-            // reset_dma_before_usr_cmd(reg_block);
-
-            // reg_block.cmd.modify(|_, w| w.usr().set_bit());
+            self.clear_dma_interrupts();
 
             Ok(())
         }
@@ -924,179 +922,52 @@ pub mod dma {
             TXBUF: Tx,
         {
             for chunk in words.chunks(MAX_DMA_SIZE) {
-                self.start_write_bytes_dma(chunk.as_ptr(), chunk.len(), tx)?;
+                self.start_write_bytes_dma(chunk.as_ptr(), chunk.len())?;
 
                 while !tx.is_done() {}
-                self.sha.flush_data(); // seems "is_done" doesn't work
-                                       // as intended?
+                // todo!();
+                // self.sha.flush_data(); // seems "is_done" doesn't work
+                // as intended?
             }
 
             return Ok(words);
         }
 
-        fn start_write_bytes_dma<'w, TXBUF>(
+        fn start_write_bytes_dma<'w>(
             &mut self,
             ptr: *const u8,
             len: usize,
-            tx: &mut TXBUF,
-        ) -> Result<(), super::Error>
-        where
-            TXBUF: Tx,
-        {
-            todo!();
-            // let reg_block = self.register_block();
-            // self.configure_datalen(len as u32 * 8);
+        ) -> Result<(), super::Error> {
+            self.channel.tx.is_done();
 
-            // tx.is_done();
+            self.channel
+                .tx
+                .prepare_transfer(DmaPeripheral::Sha, false, ptr, len)?;
 
-            // self.enable_dma();
-            // self.update();
-
-            // reset_dma_before_load_dma_dscr(reg_block);
-            // tx.prepare_transfer(DmaPeripheral::Sha, false, ptr, len)?;
-
-            // self.clear_dma_interrupts();
-            // reset_dma_before_usr_cmd(reg_block);
-
-            // reg_block.cmd.modify(|_, w| w.usr().set_bit());
+            self.clear_dma_interrupts();
 
             return Ok(());
         }
 
-        fn start_read_bytes_dma<'w, RXBUF>(
+        fn start_read_bytes_dma<'w>(
             &mut self,
             ptr: *mut u8,
             len: usize,
-            rx: &mut RXBUF,
-        ) -> Result<(), super::Error>
-        where
-            RXBUF: Rx,
-        {
-            todo!();
-            // let reg_block = self.register_block();
-            // self.configure_datalen(len as u32 * 8);
+        ) -> Result<(), super::Error> {
+            self.channel.rx.is_done();
 
-            // rx.is_done();
+            self.channel
+                .rx
+                .prepare_transfer(false, DmaPeripheral::Sha, ptr, len)?;
 
-            // self.enable_dma();
-            // self.update();
-
-            // reset_dma_before_load_dma_dscr(reg_block);
-            // rx.prepare_transfer(false, DmaPeripheral::Sha, ptr, len)?;
-
-            // self.clear_dma_interrupts();
-            // reset_dma_before_usr_cmd(reg_block);
-
-            // reg_block.cmd.modify(|_, w| w.usr().set_bit());
+            self.clear_dma_interrupts();
 
             return Ok(());
         }
 
-        #[cfg(any(esp32c2, esp32c3, esp32c6, esp32h2, esp32s3))]
-        fn enable_dma(&self) {
-            todo!();
-            // let reg_block = self.register_block();
-            // reg_block.dma_conf.modify(|_, w| w.dma_tx_ena().set_bit());
-            // reg_block.dma_conf.modify(|_, w| w.dma_rx_ena().set_bit());
-        }
-
-        #[cfg(any(esp32, esp32s2))]
-        fn enable_dma(&self) {
-            // for non GDMA this is done in `assign_tx_device` /
-            // `assign_rx_device`
-        }
-
-        #[cfg(any(esp32c2, esp32c3, esp32c6, esp32h2, esp32s3))]
+        #[cfg(not(esp32))]
         fn clear_dma_interrupts(&self) {
-            todo!();
-
-            // let reg_block = self.register_block();
-            // reg_block.dma_int_clr.write(|w| {
-            //     w.dma_infifo_full_err_int_clr()
-            //         .set_bit()
-            //         .dma_outfifo_empty_err_int_clr()
-            //         .set_bit()
-            //         .trans_done_int_clr()
-            //         .set_bit()
-            //         .mst_rx_afifo_wfull_err_int_clr()
-            //         .set_bit()
-            //         .mst_tx_afifo_rempty_err_int_clr()
-            //         .set_bit()
-            // });
-        }
-
-        #[cfg(any(esp32, esp32s2))]
-        fn clear_dma_interrupts(&self) {
-            todo!();
-
-            // let reg_block = self.register_block();
-            // reg_block.dma_int_clr.write(|w| {
-            //     w.inlink_dscr_empty_int_clr()
-            //         .set_bit()
-            //         .outlink_dscr_error_int_clr()
-            //         .set_bit()
-            //         .inlink_dscr_error_int_clr()
-            //         .set_bit()
-            //         .in_done_int_clr()
-            //         .set_bit()
-            //         .in_err_eof_int_clr()
-            //         .set_bit()
-            //         .in_suc_eof_int_clr()
-            //         .set_bit()
-            //         .out_done_int_clr()
-            //         .set_bit()
-            //         .out_eof_int_clr()
-            //         .set_bit()
-            //         .out_total_eof_int_clr()
-            //         .set_bit()
-            // });
+            self.sha.clear_irq.write(|w| unsafe { w.bits(1) });
         }
     }
-}
-
-// #[cfg(not(any(esp32, esp32s2)))]
-fn reset_dma_before_usr_cmd(reg_block: &RegisterBlock) {
-    todo!();
-
-    // reg_block.dma_conf.modify(|_, w| {
-    //     w.rx_afifo_rst()
-    //         .set_bit()
-    //         .buf_afifo_rst()
-    //         .set_bit()
-    //         .dma_afifo_rst()
-    //         .set_bit()
-    // });
-}
-
-#[cfg(any(esp32, esp32s2))]
-fn reset_dma_before_usr_cmd(_reg_block: &RegisterBlock) {}
-
-#[cfg(not(any(esp32, esp32s2)))]
-fn reset_dma_before_load_dma_dscr(_reg_block: &RegisterBlock) {}
-
-#[cfg(any(esp32, esp32s2))]
-fn reset_dma_before_load_dma_dscr(reg_block: &RegisterBlock) {
-    todo!();
-
-    // reg_block.dma_conf.modify(|_, w| {
-    //     w.out_rst()
-    //         .set_bit()
-    //         .in_rst()
-    //         .set_bit()
-    //         .ahbm_fifo_rst()
-    //         .set_bit()
-    //         .ahbm_rst()
-    //         .set_bit()
-    // });
-
-    // reg_block.dma_conf.modify(|_, w| {
-    //     w.out_rst()
-    //         .clear_bit()
-    //         .in_rst()
-    //         .clear_bit()
-    //         .ahbm_fifo_rst()
-    //         .clear_bit()
-    //         .ahbm_rst()
-    //         .clear_bit()
-    // });
 }
