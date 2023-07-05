@@ -402,6 +402,7 @@ impl<'d> Sha<'d> {
         return self.sha.text[0].as_ptr() as *const u32;
     }
 
+    // Flush partial data, ensures aligned cursor
     fn flush_data(&mut self) -> nb::Result<(), Infallible> {
         if self.is_busy() {
             return Err(nb::Error::WouldBlock);
@@ -479,7 +480,7 @@ impl<'d> Sha<'d> {
             // Store message length for padding
             let length = self.cursor * 8;
             nb::block!(self.update(&[0x80]))?; // Append "1" bit
-            nb::block!(self.flush_data())?; // Flush partial data, ensures aligned cursor
+            nb::block!(self.flush_data())?;
             debug_assert!(self.cursor % 4 == 0);
 
             let mod_cursor = self.cursor % chunk_len;
@@ -602,10 +603,7 @@ pub mod dma {
         fn with_dma(self, mut channel: Channel<'d, C>) -> ShaDma<'d, C> {
             channel.tx.init_channel(); // no need to call this for both, TX and RX
 
-            ShaDma {
-                sha: self.sha,
-                channel,
-            }
+            ShaDma { sha: self, channel }
         }
     }
 
@@ -629,8 +627,7 @@ pub mod dma {
         /// Wait for the DMA transfer to complete and return the buffers and the
         /// SHA instance.
         fn wait(mut self) -> (RXBUF, TXBUF, ShaDma<'d, C>) {
-            todo!();
-            // self.sha_dma.sha.flush().ok(); // waiting for the DMA transfer is not enough
+            self.sha_dma.sha.flush_data(); // waiting for the DMA transfer is not enough
 
             // `DmaTransfer` needs to have a `Drop` implementation, because we accept
             // managed buffers that can free their memory on drop. Because of that
@@ -661,7 +658,7 @@ pub mod dma {
         C::P: ShaPeripheral,
     {
         fn drop(&mut self) {
-            // self.sha_dma.sha.flush_data();
+            self.sha_dma.sha.flush_data();
         }
     }
 
@@ -683,8 +680,7 @@ pub mod dma {
         /// Wait for the DMA transfer to complete and return the buffers and the
         /// SHA instance.
         fn wait(mut self) -> (BUFFER, ShaDma<'d, C>) {
-            todo!();
-            // self.sha_dma.sha.flush().ok(); // waiting for the DMA transfer is not enough
+            self.sha_dma.sha.flush_data(); // waiting for the DMA transfer is not enough
 
             // `DmaTransfer` needs to have a `Drop` implementation, because we accept
             // managed buffers that can free their memory on drop. Because of that
@@ -714,8 +710,7 @@ pub mod dma {
         C::P: ShaPeripheral,
     {
         fn drop(&mut self) {
-            todo!();
-            // self.sha_dma.sha.flush().ok();
+            self.sha_dma.sha.flush_data();
         }
     }
 
@@ -725,7 +720,7 @@ pub mod dma {
         C: ChannelTypes,
         C::P: ShaPeripheral,
     {
-        pub(crate) sha: PeripheralRef<'d, SHA>,
+        pub(crate) sha: Sha<'d>,
         pub(crate) channel: Channel<'d, C>,
     }
 
@@ -753,6 +748,7 @@ pub mod dma {
             }
 
             todo!();
+            // let test = self.sha;
             // self.sha
             //     .start_write_bytes_dma(ptr, len, &mut self.channel.tx)?;
             Ok(ShaDmaTransfer {
@@ -779,9 +775,9 @@ pub mod dma {
                 return Err(super::Error::MaxDmaTransferSizeExceeded);
             }
 
-            todo!();
             // self.sha
             //     .start_read_bytes_dma(ptr, len, &mut self.channel.rx)?;
+            // self.start_read_bytes_dma(ptr, len, &mut self.channel.rx)?;
             Ok(ShaDmaTransfer {
                 sha_dma: self,
                 buffer: words,
@@ -805,6 +801,7 @@ pub mod dma {
             todo!();
         }
 
+        // InstanceDma
         fn transfer_in_place_dma<'w, TXBUF, RXBUF>(
             &mut self,
             words: &'w mut [u8],
@@ -826,8 +823,7 @@ pub mod dma {
                 )?;
 
                 while !tx.is_done() && !rx.is_done() {}
-                todo!();
-                // self.flush().unwrap();
+                self.sha.flush_data();
             }
 
             return Ok(words);
@@ -862,8 +858,7 @@ pub mod dma {
                 )?;
 
                 while !tx.is_done() && !rx.is_done() {}
-                todo!();
-                // self.flush().unwrap();
+                self.sha.flush_data();
 
                 idx += MAX_DMA_SIZE as isize;
                 if idx >= write_buffer.len() as isize && idx >= read_buffer.len() as isize {
@@ -932,9 +927,8 @@ pub mod dma {
                 self.start_write_bytes_dma(chunk.as_ptr(), chunk.len(), tx)?;
 
                 while !tx.is_done() {}
-                todo!();
-                // self.flush().unwrap(); // seems "is_done" doesn't work as
-                // intended?
+                self.sha.flush_data(); // seems "is_done" doesn't work
+                                       // as intended?
             }
 
             return Ok(words);

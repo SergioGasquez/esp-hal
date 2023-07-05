@@ -57,6 +57,7 @@ esp32c3 = { version = "0.15.0", features = ["critical-section"], optional = true
 esp32c6 = { version = "0.5.0",  features = ["critical-section"], optional = true }
 esp32h2 = { version = "0.1.0",  features = ["critical-section"], optional = true }
 esp32s2 = { version = "0.15.0", features = ["critical-section"], optional = true }
+# TODO: esp32s3 must use custom PAC until changes are pushed/merged
 esp32s3 = { version = "0.19.0", features = ["critical-section"], optional = true }
 
 [build-dependencies]
