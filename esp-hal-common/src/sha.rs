@@ -551,7 +551,6 @@ impl<'d> Sha<'d> {
 
             self.finished = true;
         }
-
         unsafe {
             let digest_ptr = self.output_ptr();
             let out_ptr = output.as_mut_ptr() as *mut u32;
@@ -570,11 +569,11 @@ impl<'d> Sha<'d> {
 }
 
 pub mod dma {
-    use core::mem;
+    use core::{convert::Infallible, mem};
 
     use embedded_dma::{ReadBuffer, WriteBuffer};
 
-    use super::{OperationMode, Sha, MAX_DMA_SIZE};
+    use super::{OperationMode, Sha, ALIGN_SIZE, MAX_DMA_SIZE};
     use crate::{
         dma::{
             Channel,
@@ -608,10 +607,7 @@ pub mod dma {
         fn with_dma(mut self, mut channel: Channel<'d, C>) -> ShaDma<'d, C> {
             channel.tx.init_channel(); // no need to call this for both, TX and RX
             self.operation_mode = OperationMode::DMA;
-            ShaDma {
-                sha: self.sha,
-                channel,
-            }
+            ShaDma { sha: self, channel }
         }
     }
 
@@ -732,7 +728,7 @@ pub mod dma {
         C: ChannelTypes,
         C::P: ShaPeripheral,
     {
-        pub(crate) sha: PeripheralRef<'d, SHA>,
+        pub(crate) sha: Sha<'d>,
         pub(crate) channel: Channel<'d, C>,
     }
 
@@ -746,25 +742,26 @@ pub mod dma {
         /// This will return a [ShaDmaTransfer] owning the buffer(s) and the SHA
         /// instance. The maximum amount of data to be sent is 32736
         /// bytes.
-        pub fn dma_write<TXBUF>(
-            mut self,
-            words: TXBUF,
-        ) -> Result<ShaDmaTransfer<'d, C, TXBUF>, super::Error>
-        where
-            TXBUF: ReadBuffer<Word = u8>,
-        {
-            let (ptr, len) = unsafe { words.read_buffer() };
+        // Tentatively commented
+        // pub fn dma_write<TXBUF>(
+        //     mut self,
+        //     words: TXBUF,
+        // ) -> Result<ShaDmaTransfer<'d, C, TXBUF>, super::Error>
+        // where
+        //     TXBUF: ReadBuffer<Word = u8>,
+        // {
+        //     let (ptr, len) = unsafe { words.read_buffer() };
 
-            if len > MAX_DMA_SIZE {
-                return Err(super::Error::MaxDmaTransferSizeExceeded);
-            }
+        //     if len > MAX_DMA_SIZE {
+        //         return Err(super::Error::MaxDmaTransferSizeExceeded);
+        //     }
 
-            self.start_write_bytes_dma(ptr, len)?;
-            Ok(ShaDmaTransfer {
-                sha_dma: self,
-                buffer: words,
-            })
-        }
+        //     self.start_write_bytes_dma(ptr, len)?;
+        //     Ok(ShaDmaTransfer {
+        //         sha_dma: self,
+        //         buffer: words,
+        //     })
+        // }
 
         /// Perform a DMA read.
         ///
@@ -791,163 +788,42 @@ pub mod dma {
             })
         }
 
-        /// Perform a DMA transfer.
-        ///
-        /// This will return a [ShaDmaTransfer] owning the buffer(s) and the SHA
-        /// instance. The maximum amount of data to be sent/received is
-        /// 32736 bytes.
-        pub fn dma_transfer<TXBUF, RXBUF>(
-            mut self,
-            words: TXBUF,
-            mut read_buffer: RXBUF,
-        ) -> Result<ShaDmaTransferRxTx<'d, C, RXBUF, TXBUF>, super::Error>
-        where
-            TXBUF: ReadBuffer<Word = u8>,
-            RXBUF: WriteBuffer<Word = u8>,
-        {
-            let (write_ptr, write_len) = unsafe { words.read_buffer() };
-            let (read_ptr, read_len) = unsafe { read_buffer.write_buffer() };
+        // Tentatively commented
+        // fn write_bytes_dma<'w, TXBUF>(
+        //     &mut self,
+        //     words: &'w [u8],
+        //     tx: &mut TXBUF,
+        // ) -> Result<&'w [u8], super::Error>
+        // where
+        //     TXBUF: Tx,
+        // {
+        //     for chunk in words.chunks(MAX_DMA_SIZE) {
+        //         self.start_write_bytes_dma(chunk.as_ptr(), chunk.len())?;
 
-            if write_len > MAX_DMA_SIZE || read_len > MAX_DMA_SIZE {
-                return Err(super::Error::MaxDmaTransferSizeExceeded);
-            }
+        //         while !tx.is_done() {}
+        //         // todo!();
+        //         // self.sha.flush_data(); // seems "is_done" doesn't work
+        //         // as intended?
+        //     }
 
-            self.start_transfer_dma(write_ptr, write_len, read_ptr, read_len)?;
-            Ok(ShaDmaTransferRxTx {
-                sha_dma: self,
-                rbuffer: read_buffer,
-                tbuffer: words,
-            })
-        }
+        //     return Ok(words);
+        // }
 
-        fn transfer_in_place_dma<'w, TXBUF, RXBUF>(
-            &mut self,
-            words: &'w mut [u8],
-            tx: &mut TXBUF,
-            rx: &mut RXBUF,
-        ) -> Result<&'w [u8], super::Error>
-        where
-            TXBUF: Tx,
-            RXBUF: Rx,
-        {
-            for chunk in words.chunks_mut(MAX_DMA_SIZE) {
-                self.start_transfer_dma(
-                    chunk.as_ptr(),
-                    chunk.len(),
-                    chunk.as_mut_ptr(),
-                    chunk.len(),
-                )?;
+        // Tentatively commented
+        // fn start_write_bytes_dma<'w>(
+        //     &mut self,
+        //     ptr: *const u8,
+        //     len: usize,
+        // ) -> Result<(), super::Error> { self.channel.tx.is_done();
 
-                while !tx.is_done() && !rx.is_done() {}
-                // todo!();
-                // self.sha.flush_data();
-            }
+        //     self.channel
+        //         .tx
+        //         .prepare_transfer(DmaPeripheral::Sha, false, ptr, len)?;
 
-            return Ok(words);
-        }
+        //     self.clear_dma_interrupts();
 
-        fn transfer_dma<'w, TXBUF, RXBUF>(
-            &mut self,
-            write_buffer: &'w [u8],
-            read_buffer: &'w mut [u8],
-            tx: &mut TXBUF,
-            rx: &mut RXBUF,
-        ) -> Result<&'w [u8], super::Error>
-        where
-            TXBUF: Tx,
-            RXBUF: Rx,
-        {
-            let mut idx = 0;
-            loop {
-                let write_idx = isize::min(idx, write_buffer.len() as isize);
-                let write_len = usize::min(write_buffer.len() - idx as usize, MAX_DMA_SIZE);
-
-                let read_idx = isize::min(idx, read_buffer.len() as isize);
-                let read_len = usize::min(read_buffer.len() - idx as usize, MAX_DMA_SIZE);
-
-                self.start_transfer_dma(
-                    unsafe { write_buffer.as_ptr().offset(write_idx) },
-                    write_len,
-                    unsafe { read_buffer.as_mut_ptr().offset(read_idx) },
-                    read_len,
-                )?;
-
-                while !tx.is_done() && !rx.is_done() {}
-                // todo!();
-                // self.sha.flush_data();
-
-                idx += MAX_DMA_SIZE as isize;
-                if idx >= write_buffer.len() as isize && idx >= read_buffer.len() as isize {
-                    break;
-                }
-            }
-
-            return Ok(read_buffer);
-        }
-
-        fn start_transfer_dma<'w>(
-            &mut self,
-            write_buffer_ptr: *const u8,
-            write_buffer_len: usize,
-            read_buffer_ptr: *mut u8,
-            read_buffer_len: usize,
-        ) -> Result<(), super::Error> {
-            self.channel.tx.is_done();
-            self.channel.rx.is_done();
-
-            self.channel.tx.prepare_transfer(
-                DmaPeripheral::Sha,
-                false,
-                write_buffer_ptr,
-                write_buffer_len,
-            )?;
-            self.channel.rx.prepare_transfer(
-                false,
-                DmaPeripheral::Sha,
-                read_buffer_ptr,
-                read_buffer_len,
-            )?;
-
-            self.clear_dma_interrupts();
-
-            Ok(())
-        }
-
-        fn write_bytes_dma<'w, TXBUF>(
-            &mut self,
-            words: &'w [u8],
-            tx: &mut TXBUF,
-        ) -> Result<&'w [u8], super::Error>
-        where
-            TXBUF: Tx,
-        {
-            for chunk in words.chunks(MAX_DMA_SIZE) {
-                self.start_write_bytes_dma(chunk.as_ptr(), chunk.len())?;
-
-                while !tx.is_done() {}
-                // todo!();
-                // self.sha.flush_data(); // seems "is_done" doesn't work
-                // as intended?
-            }
-
-            return Ok(words);
-        }
-
-        fn start_write_bytes_dma<'w>(
-            &mut self,
-            ptr: *const u8,
-            len: usize,
-        ) -> Result<(), super::Error> {
-            self.channel.tx.is_done();
-
-            self.channel
-                .tx
-                .prepare_transfer(DmaPeripheral::Sha, false, ptr, len)?;
-
-            self.clear_dma_interrupts();
-
-            return Ok(());
-        }
+        //     return Ok(());
+        // }
 
         fn start_read_bytes_dma<'w>(
             &mut self,
@@ -967,7 +843,7 @@ pub mod dma {
 
         #[cfg(not(esp32))]
         fn clear_dma_interrupts(&self) {
-            self.sha.clear_irq.write(|w| unsafe { w.bits(1) });
+            self.sha.sha.clear_irq.write(|w| unsafe { w.bits(1) });
         }
     }
 }
