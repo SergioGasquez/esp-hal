@@ -61,7 +61,10 @@ esp32c3 = { version = "0.17.0", features = ["critical-section"], optional = true
 esp32c6 = { version = "0.7.0",  features = ["critical-section"], optional = true }
 esp32h2 = { version = "0.3.0",  features = ["critical-section"], optional = true }
 esp32s2 = { version = "0.17.0", features = ["critical-section"], optional = true }
-esp32s3 = { version = "0.21.0", features = ["critical-section"], optional = true }
+# esp32s3 = { version = "0.21.0", features = ["critical-section"], optional = true }
+esp32s3 = { git = "https://github.com/SergioGasquez/esp-pacs", branch = "feat/sha-dma", features = [
+    "critical-section",
+], optional = true }
 
 [build-dependencies]
 basic-toml = "0.1.4"

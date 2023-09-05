@@ -63,11 +63,28 @@
 use core::convert::Infallible;
 
 use crate::{
+    dma::DmaError,
     peripheral::{Peripheral, PeripheralRef},
     peripherals::SHA,
     reg_access::AlignmentHelper,
     system::PeripheralClockControl,
 };
+
+#[allow(unused)]
+const MAX_DMA_SIZE: usize = 32736;
+
+#[derive(Debug, Clone, Copy)]
+pub enum Error {
+    DmaError(DmaError),
+    MaxDmaTransferSizeExceeded,
+    Unknown,
+}
+
+impl From<DmaError> for Error {
+    fn from(value: DmaError) -> Self {
+        Error::DmaError(value)
+    }
+}
 
 // All the hash algorithms introduced in FIPS PUB 180-4 Spec.
 // – SHA-1
@@ -85,6 +102,7 @@ use crate::{
 pub struct Sha<'d> {
     sha: PeripheralRef<'d, SHA>,
     mode: ShaMode,
+    operation_mode: OperationMode,
     alignment_helper: AlignmentHelper,
     cursor: usize,
     first_run: bool,
@@ -106,6 +124,14 @@ pub enum ShaMode {
     #[cfg(any(esp32s2, esp32s3))]
     SHA512_256,
     // SHA512_(u16) // Max 511
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum OperationMode {
+    Typical,
+    // ESP32 does not support DMA mode
+    #[cfg(not(esp32))]
+    DMA,
 }
 
 // TODO: Maybe make Sha Generic (Sha<Mode>) in order to allow for better
@@ -165,6 +191,7 @@ impl<'d> Sha<'d> {
         Self {
             sha,
             mode,
+            operation_mode: OperationMode::Typical,
             cursor: 0,
             first_run: true,
             finished: false,
@@ -183,17 +210,35 @@ impl<'d> Sha<'d> {
     #[cfg(not(esp32))]
     fn process_buffer(&mut self) {
         // FIXME: SHA_START_REG & SHA_CONTINUE_REG are wrongly marked as RO (they are
-        // WO)
-        if self.first_run {
-            // Set SHA_START_REG
-            unsafe {
-                self.sha.start.as_ptr().write_volatile(1u32);
+        // WO). CHECK PR
+        match self.operation_mode {
+            OperationMode::Typical => {
+                if self.first_run {
+                    // Set SHA_START_REG
+                    self.sha.start.write(|w| unsafe { w.bits(1) });
+                    self.first_run = false;
+                } else {
+                    // SET SHA_CONTINUE_REG
+                    self.sha.continue_.write(|w| unsafe { w.bits(1) });
+                }
             }
-            self.first_run = false;
-        } else {
-            // SET SHA_CONTINUE_REG
-            unsafe {
-                self.sha.continue_.as_ptr().write_volatile(1u32);
+            OperationMode::DMA => {
+                if self.first_run {
+                    // Set SHA_DMA_START_REG
+                    self.sha.dma_start.write(|w| unsafe { w.bits(1) });
+                    // TODO clear_dma_interrupts(); ?
+                    // Set SHA_DMA_INT_ENA_REG
+                    self.sha.irq_ena.write(|w| unsafe { w.bits(1) });
+                    // Set the number of blocks in DMA_BLOCK_NUM
+                    self.sha
+                        .dma_block_num
+                        .write(|w| unsafe { w.bits(self.chunk_length() as u32) });
+
+                    self.first_run = false;
+                } else {
+                    // SET SHA_DMA_CONTINUE_REG
+                    self.sha.dma_continue.write(|w| unsafe { w.bits(1) });
+                }
             }
         }
     }
@@ -218,8 +263,10 @@ impl<'d> Sha<'d> {
         }
     }
 
+    // Return block size (in bytes) for a given SHA type
     fn chunk_length(&self) -> usize {
         return match self.mode {
+            // 512 bits (64 bytes) blocks
             ShaMode::SHA1 | ShaMode::SHA256 => 64,
             #[cfg(not(esp32))]
             ShaMode::SHA224 => 64,
@@ -243,6 +290,7 @@ impl<'d> Sha<'d> {
         self.sha.busy.read().bits() != 0
     }
 
+    // Return the output length (in bytes) for a given SHA type
     pub fn digest_length(&self) -> usize {
         match self.mode {
             ShaMode::SHA1 => 20,
@@ -260,6 +308,7 @@ impl<'d> Sha<'d> {
         }
     }
 
+    // Flush partial data, ensures aligned cursor
     fn flush_data(&mut self) -> nb::Result<(), Infallible> {
         if self.is_busy() {
             return Err(nb::Error::WouldBlock);
@@ -322,7 +371,7 @@ impl<'d> Sha<'d> {
         Ok(remaining)
     }
 
-    // Finish of the calculation (if not alreaedy) and copy result to output
+    // Finish of the calculation (if not already) and copy result to output
     // After `finish()` is called `update()`s will contribute to a new hash which
     // can be calculated again with `finish()`.
     //
@@ -425,5 +474,297 @@ impl<'d> Sha<'d> {
         self.alignment_helper.reset();
 
         Ok(())
+    }
+}
+
+pub mod dma {
+    use core::mem;
+
+    use embedded_dma::WriteBuffer;
+
+    use super::{OperationMode, Sha, MAX_DMA_SIZE};
+    use crate::dma::{
+        Channel,
+        ChannelTypes,
+        DmaError,
+        DmaPeripheral,
+        DmaTransfer,
+        DmaTransferRxTx,
+        // Rx,
+        RxPrivate,
+        ShaPeripheral,
+        // Tx,
+        TxPrivate,
+    };
+
+    pub trait WithDmaSha<'d, C>
+    where
+        C: ChannelTypes,
+        C::P: ShaPeripheral,
+    {
+        fn with_dma(self, channel: Channel<'d, C>) -> ShaDma<'d, C>;
+    }
+
+    impl<'d, C> WithDmaSha<'d, C> for Sha<'d>
+    where
+        C: ChannelTypes,
+        C::P: ShaPeripheral,
+    {
+        fn with_dma(mut self, mut channel: Channel<'d, C>) -> ShaDma<'d, C> {
+            channel.tx.init_channel(); // no need to call this for both, TX and RX
+            self.operation_mode = OperationMode::DMA;
+            ShaDma { sha: self, channel }
+        }
+    }
+
+    /// An in-progress DMA transfer
+    pub struct ShaDmaTransferRxTx<'d, C, RBUFFER, TBUFFER>
+    where
+        C: ChannelTypes,
+        C::P: ShaPeripheral,
+    {
+        sha_dma: ShaDma<'d, C>,
+        rbuffer: RBUFFER,
+        tbuffer: TBUFFER,
+    }
+
+    impl<'d, C, RXBUF, TXBUF> DmaTransferRxTx<RXBUF, TXBUF, ShaDma<'d, C>>
+        for ShaDmaTransferRxTx<'d, C, RXBUF, TXBUF>
+    where
+        C: ChannelTypes,
+        C::P: ShaPeripheral,
+    {
+        /// Wait for the DMA transfer to complete and return the buffers and the
+        /// SHA instance.
+        fn wait(
+            self,
+        ) -> Result<(RXBUF, TXBUF, ShaDma<'d, C>), (DmaError, RXBUF, TXBUF, ShaDma<'d, C>)>
+        {
+            // todo!();
+            // self.sha_dma.sha.flush_data(); // waiting for the DMA transfer is not enough
+
+            // `DmaTransfer` needs to have a `Drop` implementation, because we accept
+            // managed buffers that can free their memory on drop. Because of that
+            // we can't move out of the `DmaTransfer`'s fields, so we use `ptr::read`
+            // and `mem::forget`.
+            //
+            // NOTE(unsafe) There is no panic branch between getting the resources
+            // and forgetting `self`.
+            unsafe {
+                let rbuffer = core::ptr::read(&self.rbuffer);
+                let tbuffer = core::ptr::read(&self.tbuffer);
+                let payload = core::ptr::read(&self.sha_dma);
+                let err = (&self).sha_dma.channel.rx.has_error()
+                    || (&self).sha_dma.channel.tx.has_error();
+                mem::forget(self);
+                if err {
+                    Err((DmaError::DescriptorError, rbuffer, tbuffer, payload))
+                } else {
+                    Ok((rbuffer, tbuffer, payload))
+                }
+            }
+        }
+
+        /// Check if the DMA transfer is complete
+        fn is_done(&self) -> bool {
+            let ch = &self.sha_dma.channel;
+            ch.tx.is_done() && ch.rx.is_done()
+        }
+    }
+
+    impl<'d, C, RXBUF, TXBUF> Drop for ShaDmaTransferRxTx<'d, C, RXBUF, TXBUF>
+    where
+        C: ChannelTypes,
+        C::P: ShaPeripheral,
+    {
+        fn drop(&mut self) {
+            // todo!();
+            // self.sha_dma.sha.flush_data();
+        }
+    }
+
+    /// An in-progress DMA transfer.
+    pub struct ShaDmaTransfer<'d, C, BUFFER>
+    where
+        C: ChannelTypes,
+        C::P: ShaPeripheral,
+    {
+        sha_dma: ShaDma<'d, C>,
+        buffer: BUFFER,
+    }
+
+    impl<'d, C, BUFFER> DmaTransfer<BUFFER, ShaDma<'d, C>> for ShaDmaTransfer<'d, C, BUFFER>
+    where
+        C: ChannelTypes,
+        C::P: ShaPeripheral,
+    {
+        /// Wait for the DMA transfer to complete and return the buffers and the
+        /// SHA instance.
+        fn wait(self) -> Result<(BUFFER, ShaDma<'d, C>), (DmaError, BUFFER, ShaDma<'d, C>)> {
+            // todo!();
+            // self.sha_dma.sha.flush_data(); // waiting for the DMA transfer is not enough
+
+            // `DmaTransfer` needs to have a `Drop` implementation, because we accept
+            // managed buffers that can free their memory on drop. Because of that
+            // we can't move out of the `DmaTransfer`'s fields, so we use `ptr::read`
+            // and `mem::forget`.
+            //
+            // NOTE(unsafe) There is no panic branch between getting the resources
+            // and forgetting `self`.
+            unsafe {
+                let buffer = core::ptr::read(&self.buffer);
+                let payload = core::ptr::read(&self.sha_dma);
+                let err = (&self).sha_dma.channel.rx.has_error()
+                    || (&self).sha_dma.channel.tx.has_error();
+                mem::forget(self);
+                if err {
+                    Err((DmaError::DescriptorError, buffer, payload))
+                } else {
+                    Ok((buffer, payload))
+                }
+            }
+        }
+
+        /// Check if the DMA transfer is complete
+        fn is_done(&self) -> bool {
+            let ch = &self.sha_dma.channel;
+            ch.tx.is_done() && ch.rx.is_done()
+        }
+    }
+
+    impl<'d, C, BUFFER> Drop for ShaDmaTransfer<'d, C, BUFFER>
+    where
+        C: ChannelTypes,
+        C::P: ShaPeripheral,
+    {
+        fn drop(&mut self) {
+            // self.sha_dma.sha.flush_data();
+            // todo!();
+        }
+    }
+
+    /// A DMA capable SHA instance.
+    pub struct ShaDma<'d, C>
+    where
+        C: ChannelTypes,
+        C::P: ShaPeripheral,
+    {
+        pub(crate) sha: Sha<'d>,
+        pub(crate) channel: Channel<'d, C>,
+    }
+
+    impl<'d, C> ShaDma<'d, C>
+    where
+        C: ChannelTypes,
+        C::P: ShaPeripheral,
+    {
+        /// Perform a DMA write.
+        ///
+        /// This will return a [ShaDmaTransfer] owning the buffer(s) and the SHA
+        /// instance. The maximum amount of data to be sent is 32736
+        /// bytes.
+        // Tentatively commented
+        // pub fn dma_write<TXBUF>(
+        //     mut self,
+        //     words: TXBUF,
+        // ) -> Result<ShaDmaTransfer<'d, C, TXBUF>, super::Error>
+        // where
+        //     TXBUF: ReadBuffer<Word = u8>,
+        // {
+        //     let (ptr, len) = unsafe { words.read_buffer() };
+
+        //     if len > MAX_DMA_SIZE {
+        //         return Err(super::Error::MaxDmaTransferSizeExceeded);
+        //     }
+
+        //     self.start_write_bytes_dma(ptr, len)?;
+        //     Ok(ShaDmaTransfer {
+        //         sha_dma: self,
+        //         buffer: words,
+        //     })
+        // }
+
+        /// Perform a DMA read.
+        ///
+        /// This will return a [ShaDmaTransfer] owning the buffer(s) and the SHA
+        /// instance. The maximum amount of data to be received is 32736
+        /// bytes.
+        pub fn dma_read<RXBUF>(
+            mut self,
+            mut words: RXBUF,
+        ) -> Result<ShaDmaTransfer<'d, C, RXBUF>, super::Error>
+        where
+            RXBUF: WriteBuffer<Word = u8>,
+        {
+            let (ptr, len) = unsafe { words.write_buffer() };
+
+            if len > MAX_DMA_SIZE {
+                return Err(super::Error::MaxDmaTransferSizeExceeded);
+            }
+
+            self.start_read_bytes_dma(ptr, len)?;
+            Ok(ShaDmaTransfer {
+                sha_dma: self,
+                buffer: words,
+            })
+        }
+
+        // Tentatively commented
+        // fn write_bytes_dma<'w, TXBUF>(
+        //     &mut self,
+        //     words: &'w [u8],
+        //     tx: &mut TXBUF,
+        // ) -> Result<&'w [u8], super::Error>
+        // where
+        //     TXBUF: Tx,
+        // {
+        //     for chunk in words.chunks(MAX_DMA_SIZE) {
+        //         self.start_write_bytes_dma(chunk.as_ptr(), chunk.len())?;
+
+        //         while !tx.is_done() {}
+        //         // todo!();
+        //         // self.sha.flush_data(); // seems "is_done" doesn't work
+        //         // as intended?
+        //     }
+
+        //     return Ok(words);
+        // }
+
+        // Tentatively commented
+        // fn start_write_bytes_dma<'w>(
+        //     &mut self,
+        //     ptr: *const u8,
+        //     len: usize,
+        // ) -> Result<(), super::Error> { self.channel.tx.is_done();
+
+        //     self.channel
+        //         .tx
+        //         .prepare_transfer(DmaPeripheral::Sha, false, ptr, len)?;
+
+        //     self.clear_dma_interrupts();
+
+        //     return Ok(());
+        // }
+
+        fn start_read_bytes_dma<'w>(
+            &mut self,
+            ptr: *mut u8,
+            len: usize,
+        ) -> Result<(), super::Error> {
+            self.channel.rx.is_done();
+
+            self.channel
+                .rx
+                .prepare_transfer(false, DmaPeripheral::Sha, ptr, len)?;
+
+            self.clear_dma_interrupts();
+
+            return Ok(());
+        }
+
+        #[cfg(not(esp32))]
+        fn clear_dma_interrupts(&self) {
+            self.sha.sha.clear_irq.write(|w| unsafe { w.bits(1) });
+        }
     }
 }
