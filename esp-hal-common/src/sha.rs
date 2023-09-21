@@ -209,8 +209,6 @@ impl<'d> Sha<'d> {
 
     #[cfg(not(esp32))]
     fn process_buffer(&mut self) {
-        // FIXME: SHA_START_REG & SHA_CONTINUE_REG are wrongly marked as RO (they are
-        // WO). CHECK PR
         match self.operation_mode {
             OperationMode::Typical => {
                 if self.first_run {
