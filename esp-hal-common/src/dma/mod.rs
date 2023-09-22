@@ -240,6 +240,9 @@ impl DmaLinkedListDw0 for &mut u32 {
     }
 }
 
+/// Marks channels as useable for SHA
+pub trait ShaPeripheral: PeripheralMarker {}
+
 /// Marks channels as useable for SPI
 pub trait SpiPeripheral: PeripheralMarker {}
 
