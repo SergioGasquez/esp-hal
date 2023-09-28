@@ -53,7 +53,7 @@ fn main() -> ! {
     // let post_calc = xtensa_lx::timer::get_cycle_count();
     // let hw_time = post_calc - pre_calc;
     // println!("Took {} cycles", hw_time);
-    println!("SHA256 Hash output {:02x?}", output);
+    println!("SHA256 Hash HW output {:02x?}", output);
 
     // let pre_calc = xtensa_lx::timer::get_cycle_count();
     let mut hasher = Sha256::new();
@@ -62,7 +62,7 @@ fn main() -> ! {
     // let post_calc = xtensa_lx::timer::get_cycle_count();
     // let soft_time = post_calc - pre_calc;
     // println!("Took {} cycles", soft_time);
-    println!("SHA256 Hash output {:02x?}", soft_result);
+    println!("SHA256 Hash SW output {:02x?}", soft_result);
 
     // println!("HW SHA is {}x faster", soft_time/hw_time);
 

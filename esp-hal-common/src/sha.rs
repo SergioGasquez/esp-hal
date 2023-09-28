@@ -204,27 +204,34 @@ impl<'d> Sha<'d> {
                 if self.first_run {
                     // Set SHA_START_REG
                     self.sha.start.write(|w| unsafe { w.bits(1) });
+                    esp_println::println!("SHA_START_REG");
                     self.first_run = false;
                 } else {
                     // SET SHA_CONTINUE_REG
+                    esp_println::println!("SHA_CONTINUE_REG");
                     self.sha.continue_.write(|w| unsafe { w.bits(1) });
                 }
             }
             OperationMode::DMA => {
                 if self.first_run {
-                    // Set SHA_DMA_START_REG
-                    self.sha.dma_start.write(|w| unsafe { w.bits(1) });
-                    // TODO clear_dma_interrupts(); ?
+                    esp_println::println!("Clearing IRQ");
+                    self.sha.clear_irq.write(|w| unsafe { w.bits(1) });
                     // Set SHA_DMA_INT_ENA_REG
+                    esp_println::println!("Enabling IRQ");
                     self.sha.irq_ena.write(|w| unsafe { w.bits(1) });
                     // Set the number of blocks in DMA_BLOCK_NUM
+                    esp_println::println!("DMA_BLOCK_NUM: {}", self.chunk_length() as u32);
                     self.sha
                         .dma_block_num
                         .write(|w| unsafe { w.bits(self.chunk_length() as u32) });
+                    // Set SHA_DMA_START_REG
+                    esp_println::println!("SHA_DMA_START_REG");
+                    self.sha.dma_start.write(|w| unsafe { w.bits(1) });
 
                     self.first_run = false;
                 } else {
                     // SET SHA_DMA_CONTINUE_REG
+                    esp_println::println!("SHA_DMA_CONTINUE_REG");
                     self.sha.dma_continue.write(|w| unsafe { w.bits(1) });
                 }
             }
@@ -366,6 +373,7 @@ impl<'d> Sha<'d> {
     // Typically output is expected to be the size of digest_length(), but smaller
     // inputs can be given to get a "short hash"
     pub fn finish(&mut self, output: &mut [u8]) -> nb::Result<(), Infallible> {
+        esp_println::println!("finish()");
         // The main purpose of this function is to dynamically generate padding for the
         // input. Padding: Append "1" bit, Pad zeros until 512/1024 filled
         // then set the message length in the LSB (overwriting the padding)
@@ -488,8 +496,6 @@ pub mod dma {
         sha::ShaMode,
     };
 
-    const MAX_DMA_SIZE: usize = 32736;
-
     pub trait WithDmaSha<'d, C>
     where
         C: ChannelTypes,
@@ -505,7 +511,7 @@ pub mod dma {
     {
         fn with_dma(mut self, mut channel: Channel<'d, C>) -> ShaDma<'d, C> {
             channel.tx.init_channel(); // no need to call this for both, TX and RX
-
+            self.operation_mode = OperationMode::DMA;
             ShaDma { sha: self, channel }
         }
     }
@@ -553,8 +559,6 @@ pub mod dma {
                 let err = (&self).sha_dma.channel.rx.has_error()
                     || (&self).sha_dma.channel.tx.has_error();
                 // mem::forget(self);
-                println!("(&self).sha_dma.channel.rx.has_error() {:?}", &(&self).sha_dma.channel.rx.has_error());
-                println!("(&self).sha_dma.channel.tx.has_error(); {:?}", &(&self).sha_dma.channel.tx.has_error());
                 if err {
                     Err((DmaError::DescriptorError, rbuffer, tbuffer, payload))
                 } else {
@@ -611,16 +615,14 @@ pub mod dma {
     {
         /// Perform a DMA transfer.
         ///
-        /// This will return a [AesDmaTransferRxTx] owning the buffer(s) and the
-        /// AES instance. The maximum amount of data to be sent/received
+        /// This will return a [ShaDmaTransferRxTx] owning the buffer(s) and the
+        /// SHA instance. The maximum amount of data to be sent/received
         /// is 32736 bytes.
         pub fn process<TXBUF, RXBUF>(
             mut self,
             words: TXBUF,
             mut read_buffer: RXBUF,
             mode: ShaMode,
-            // cipher_mode: CipherMode,
-            // key: [u8; 16],
         ) -> Result<ShaDmaTransferRxTx<'d, C, RXBUF, TXBUF>, crate::dma::DmaError>
         where
             TXBUF: ReadBuffer<Word = u8>,
@@ -631,12 +633,7 @@ pub mod dma {
 
             esp_println::println!("dd");
 
-            self.start_transfer_dma(
-                write_ptr, write_len, read_ptr, read_len,
-                mode,
-                // cipher_mode,
-                // key,
-            )?;
+            self.start_transfer_dma(write_ptr, write_len, read_ptr, read_len, mode)?;
 
             Ok(ShaDmaTransferRxTx {
                 sha_dma: self,
@@ -652,10 +649,8 @@ pub mod dma {
             read_buffer_ptr: *mut u8,
             read_buffer_len: usize,
             mode: ShaMode,
-            // cipher_mode: CipherMode,
-            // key: [u8; 16],
         ) -> Result<(), crate::dma::DmaError> {
-            // AES has to be restarted after each calculation
+            // SHA has to be restarted after each calculation
             self.reset_sha();
 
             self.channel.tx.is_done();
@@ -679,37 +674,38 @@ pub mod dma {
                 read_buffer_len,
             )?;
 
-            esp_println::println!("33");
+            // esp_println::println!("33");
 
-            // 1. select mode in sha_mode_reg
-            self.set_mode(mode);
+            // // 1. select mode in sha_mode_reg
+            // // Already done in new()
+            // self.set_mode(mode);
 
-            esp_println::println!("44");
+            // esp_println::println!("44");
 
-            // 2. self.enable_dma(true);
-            self.enable_interrupt();
+            // // 2. self.enable_dma(true);
+            // // Already done in process_buffer()
+            // self.enable_interrupt();
 
-            esp_println::println!("55");
+            // esp_println::println!("55");
 
-            // 3.
-            // TODO: verify 16?
-            self.set_num_block(self.sha.chunk_length() as u32);
+            // // 3.
+            // // TODO: verify 16?
+            // // Already done in process_buffer()
+            // self.set_num_block(self.sha.chunk_length() as u32);
 
-            esp_println::println!("66");
+            // esp_println::println!("66");
 
-            // self.set_cipher_mode(cipher_mode);
-            // self.write_key(&key);
+            // // 4.1. if continue todo!()
 
-            // 4.1. if continue todo!()
-
-            // 4.2. if first calc
-            self.start_transform();
-            // 5. wait
+            // // 4.2. if first calc
+            // // Already done in process_buffer()
+            // self.start_transform();
+            // // 5. wait
 
             Ok(())
         }
 
-        #[cfg(any(esp32c3, esp32s3))]
+        #[cfg(any(esp32c2, esp32c3, esp32s2, esp32s3))]
         pub fn reset_sha(&self) {
             unsafe {
                 let s = crate::peripherals::SYSTEM::steal();
@@ -723,8 +719,8 @@ pub mod dma {
         pub fn reset_sha(&self) {
             unsafe {
                 let s = crate::peripherals::PCR::steal();
-                s.aes_conf.modify(|_, w| w.sha_rst_en().set_bit());
-                s.aes_conf.modify(|_, w| w.sha_rst_en().clear_bit());
+                s.sha_conf.modify(|_, w| w.sha_rst_en().set_bit());
+                s.sha_conf.modify(|_, w| w.sha_rst_en().clear_bit());
             }
         }
 
@@ -732,55 +728,34 @@ pub mod dma {
             DmaPeripheral::Sha
         }
 
-        // fn enable_dma(&self, enable: bool) {
-        //     self.aes
-        //         .aes
-        //         .dma_enable
-        //         .write(|w| w.dma_enable().bit(enable));
-        // }
-
-        fn enable_interrupt(&self) {
-            self.sha.sha.irq_ena.write(|w| w.interrupt_ena().set_bit());
-        }
-
-        // pub fn set_cipher_mode(&self, mode: CipherMode) {
-        //     self.aes
-        //         .aes
-        //         .block_mode
-        //         .modify(|_, w| unsafe { w.bits(mode as u32) });
-
-        //     if self.aes.aes.block_mode.read().block_mode().bits() == CipherMode::Ctr
-        // as u8 {         self.aes.aes.inc_sel.modify(|_, w|
-        // w.inc_sel().clear_bit());     }
+        // fn enable_interrupt(&self) {
+        //     // Already done in process_buffer()
+        //     self.sha.sha.irq_ena.write(|w| w.interrupt_ena().set_bit());
         // }
 
         pub fn set_mode(&self, mode: ShaMode) {
+            // Already done in new()
             self.sha
                 .sha
                 .mode
                 .modify(|_, w| w.mode().variant(mode as u8));
         }
 
-        fn start_transform(&self) {
-            self.sha.sha.start.write(|w| unsafe { w.start().bits(0) });
-            self.sha.sha.dma_start.write(|w| w.dma_start().set_bit());
-        }
-
-        // pub fn finish_transform(&self) {
-        //     self.aes.aes.dma_exit.write(|w| w.dma_exit().set_bit());
-        //     self.enable_dma(false);
+        // fn start_transform(&self) {
+        //     // Already done in process_buffer()
+        //     self.sha.sha.dma_start.write(|w| w.dma_start().set_bit());
         // }
 
-        fn set_num_block(&self, block: u32) {
-            self.sha
-                .sha
-                .dma_block_num
-                .modify(|_, w| unsafe { w.dma_block_num().bits(block as u8) });
-        }
+        // fn set_num_block(&self, block: u32) {
+        //     self.sha
+        //         .sha
+        //         .dma_block_num
+        //         .modify(|_, w| unsafe { w.dma_block_num().bits(block as u8) });
+        // }
 
-        #[cfg(not(esp32))]
-        fn clear_dma_interrupts(&self) {
-            self.sha.sha.clear_irq.write(|w| unsafe { w.bits(1) });
-        }
+        // #[cfg(not(esp32))]
+        // fn clear_dma_interrupts(&self) {
+        //     self.sha.sha.clear_irq.write(|w| unsafe { w.bits(1) });
+        // }
     }
 }

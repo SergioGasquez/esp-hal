@@ -19,10 +19,15 @@ use esp_println::println;
 use nb::block;
 use sha2::{Digest, Sha256};
 
+// define input data
+const INPUT: &[u8] = b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+// input length
+const INPUT_LEN: usize = INPUT.len();
+
 #[entry]
 fn main() -> ! {
     let peripherals = Peripherals::take();
-    let mut system = peripherals.SYSTEM.split();
+    let system = peripherals.SYSTEM.split();
     let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
 
     let timer_group0 = TimerGroup::new(peripherals.TIMG0, &clocks);
@@ -40,10 +45,11 @@ fn main() -> ! {
     let mut descriptors = [0u32; 8 * 3];
     let mut rx_descriptors = [0u32; 8 * 3];
 
-    let source_data = buffer1();
-    source_data.copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
-    let mut remaining = source_data.clone();
-    let mut hasher = Sha::new(peripherals.SHA, ShaMode::SHA256).with_dma(dma_channel.configure(
+    let source_data: &[u8] = buffer1();
+    let mut remaining = source_data;
+    // let source_data = "aaaaa".as_bytes();
+    // let mut remaining = source_data;
+    let hasher = Sha::new(peripherals.SHA, ShaMode::SHA256).with_dma(dma_channel.configure(
         false,
         &mut descriptors,
         &mut rx_descriptors,
@@ -52,12 +58,14 @@ fn main() -> ! {
 
     // Short hashes can be created by decreasing the output buffer to the desired
     // length
-    let mut output = buffer2();
+    let output = buffer2();
 
-    let transfer = hasher.process(source_data, output, ShaMode::SHA1).unwrap();
-    let (output, source_data, hasher) = transfer.wait().unwrap();
+    let transfer = hasher
+        .process(source_data, output, ShaMode::SHA256)
+        .unwrap();
+    let (output, source_data, mut hasher) = transfer.wait().unwrap();
 
-    println!("Output: {:?}", &output);
+    // println!("Output: {:?}", &output);
 
     // let pre_calc = xtensa_lx::timer::get_cycle_count();
     // The hardware implementation takes a subslice of the input, and returns the
@@ -74,17 +82,16 @@ fn main() -> ! {
 
         // All the HW Sha functions are infallible so unwrap is fine to use if
         // you use block!
-
-        // remaining = block!(hasher.sha.update(remaining)).unwrap();
+        remaining = block!(hasher.sha.update(remaining)).unwrap();
     }
 
     // Finish can be called as many times as desired to get mutliple copies of the
     // output.
-    // block!(hasher.sha.finish(output.as_mut_slice())).unwrap();
+    block!(hasher.sha.finish(output.as_mut_slice())).unwrap();
     // let post_calc = xtensa_lx::timer::get_cycle_count();
     // let hw_time = post_calc - pre_calc;
     // println!("Took {} cycles", hw_time);
-    // println!("SHA256 Hash output {:02x?}", output);
+    println!("SHA256 Hash HW output {:02x?}", output);
 
     // let pre_calc = xtensa_lx::timer::get_cycle_count();
     let mut hasher = Sha256::new();
@@ -93,19 +100,22 @@ fn main() -> ! {
     // let post_calc = xtensa_lx::timer::get_cycle_count();
     // let soft_time = post_calc - pre_calc;
     // println!("Took {} cycles", soft_time);
-    println!("SHA256 Hash output {:02x?}", soft_result);
+    println!("SHA256 Hash SW output {:02x?}", soft_result);
 
     // println!("HW SHA is {}x faster", soft_time/hw_time);
 
     loop {}
 }
 
-fn buffer1() -> &'static mut [u8; 16] {
-    static mut BUFFER: [u8; 16] = [0u8; 16];
-    unsafe { &mut BUFFER }
+fn buffer1() -> &'static mut [u8; INPUT_LEN] {
+    static mut BUFFER: [u8; INPUT_LEN] = [0u8; INPUT_LEN];
+    unsafe {
+        BUFFER.copy_from_slice(INPUT);
+        &mut BUFFER
+    }
 }
 
-fn buffer2() -> &'static mut [u8; 16] {
-    static mut BUFFER: [u8; 16] = [0u8; 16];
+fn buffer2() -> &'static mut [u8; 32] {
+    static mut BUFFER: [u8; 32] = [0u8; 32];
     unsafe { &mut BUFFER }
 }
