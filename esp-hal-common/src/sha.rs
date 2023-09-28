@@ -470,6 +470,7 @@ pub mod dma {
     use core::mem;
 
     use embedded_dma::{ReadBuffer, WriteBuffer};
+    use esp_println::println;
 
     use super::{OperationMode, Sha};
     use crate::{
@@ -551,7 +552,9 @@ pub mod dma {
                 let payload = core::ptr::read(&self.sha_dma);
                 let err = (&self).sha_dma.channel.rx.has_error()
                     || (&self).sha_dma.channel.tx.has_error();
-                mem::forget(self);
+                // mem::forget(self);
+                println!("(&self).sha_dma.channel.rx.has_error() {:?}", &(&self).sha_dma.channel.rx.has_error());
+                println!("(&self).sha_dma.channel.tx.has_error(); {:?}", &(&self).sha_dma.channel.tx.has_error());
                 if err {
                     Err((DmaError::DescriptorError, rbuffer, tbuffer, payload))
                 } else {
@@ -667,7 +670,7 @@ pub mod dma {
                 write_buffer_len,
             )?;
 
-            // esp_println::println!("22");
+            esp_println::println!("22");
 
             self.channel.rx.prepare_transfer(
                 false,
@@ -676,17 +679,24 @@ pub mod dma {
                 read_buffer_len,
             )?;
 
-            // esp_println::println!("33");
+            esp_println::println!("33");
 
             // 1. select mode in sha_mode_reg
             self.set_mode(mode);
 
+            esp_println::println!("44");
+
             // 2. self.enable_dma(true);
             self.enable_interrupt();
 
+            esp_println::println!("55");
+
             // 3.
             // TODO: verify 16?
-            self.set_num_block(10);
+            self.set_num_block(self.sha.chunk_length() as u32);
+
+            esp_println::println!("66");
+
             // self.set_cipher_mode(cipher_mode);
             // self.write_key(&key);
 

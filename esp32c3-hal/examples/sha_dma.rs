@@ -40,7 +40,8 @@ fn main() -> ! {
     let mut descriptors = [0u32; 8 * 3];
     let mut rx_descriptors = [0u32; 8 * 3];
 
-    let source_data = "aaaa".as_bytes();
+    let source_data = buffer1();
+    source_data.copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
     let mut remaining = source_data.clone();
     let mut hasher = Sha::new(peripherals.SHA, ShaMode::SHA256).with_dma(dma_channel.configure(
         false,
@@ -51,7 +52,7 @@ fn main() -> ! {
 
     // Short hashes can be created by decreasing the output buffer to the desired
     // length
-    let mut output = buffer1();
+    let mut output = buffer2();
 
     let transfer = hasher.process(source_data, output, ShaMode::SHA1).unwrap();
     let (output, source_data, hasher) = transfer.wait().unwrap();
