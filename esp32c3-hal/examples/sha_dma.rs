@@ -60,9 +60,7 @@ fn main() -> ! {
     // length
     let output = buffer2();
 
-    let transfer = hasher
-        .process(source_data, output, ShaMode::SHA256)
-        .unwrap();
+    let transfer = hasher.process(source_data, output).unwrap();
     let (output, source_data, mut hasher) = transfer.wait().unwrap();
 
     // println!("Output: {:?}", &output);

@@ -475,10 +475,8 @@ impl<'d> Sha<'d> {
 
 #[cfg(esp32c3)]
 pub mod dma {
-    use core::mem;
 
     use embedded_dma::{ReadBuffer, WriteBuffer};
-    use esp_println::println;
 
     use super::{OperationMode, Sha};
     use crate::{
@@ -487,7 +485,6 @@ pub mod dma {
             ChannelTypes,
             DmaError,
             DmaPeripheral,
-            DmaTransfer,
             DmaTransferRxTx,
             RxPrivate,
             ShaPeripheral,
@@ -622,7 +619,6 @@ pub mod dma {
             mut self,
             words: TXBUF,
             mut read_buffer: RXBUF,
-            mode: ShaMode,
         ) -> Result<ShaDmaTransferRxTx<'d, C, RXBUF, TXBUF>, crate::dma::DmaError>
         where
             TXBUF: ReadBuffer<Word = u8>,
@@ -633,7 +629,7 @@ pub mod dma {
 
             esp_println::println!("dd");
 
-            self.start_transfer_dma(write_ptr, write_len, read_ptr, read_len, mode)?;
+            self.start_transfer_dma(write_ptr, write_len, read_ptr, read_len)?;
 
             Ok(ShaDmaTransferRxTx {
                 sha_dma: self,
@@ -648,7 +644,6 @@ pub mod dma {
             write_buffer_len: usize,
             read_buffer_ptr: *mut u8,
             read_buffer_len: usize,
-            mode: ShaMode,
         ) -> Result<(), crate::dma::DmaError> {
             // SHA has to be restarted after each calculation
             self.reset_sha();
