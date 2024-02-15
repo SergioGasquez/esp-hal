@@ -892,7 +892,7 @@ where
     fn change_baud(&self, baudrate: u32, clocks: &Clocks) {
         // we force the clock source to be APB and don't use the decimal part of the
         // divider
-        let clk = clocks.xtal_clock.to_Hz();
+        let clk = clocks.apb_clock.to_Hz();
 
         T::register_block()
             .conf0()
