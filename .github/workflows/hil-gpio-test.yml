@@ -1,0 +1,81 @@
+name: HIL GPIO Test | C6
+
+on:
+  workflow_dispatch:
+  push:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_TARGET: riscv32imac-unknown-none-elf
+  PROBE_RS_CHIP: esp32c6
+jobs:
+  build-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 'feat/hil-testing'
+
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          target: ${{ env.CARGO_BUILD_TARGET }}
+          toolchain: nightly
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build test binaries and zip them
+        run: |
+          cd hil-test/
+          mkdir results
+          cargo test --release --features=${{ env.PROBE_RS_CHIP }} --test=gpio --no-run
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: target
+          path: hil-test/target
+          if-no-files-found: error
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: target
+          path: hil-test/results
+
+      - run: ls -R hil-test/results
+
+
+  build-tests-zip:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 'feat/hil-testing'
+
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          target: riscv32imac-unknown-none-elf
+          toolchain: nightly
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build test binaries and zip them
+        run: |
+          cd hil-test/
+          cargo test --release --features=${{ env.PROBE_RS_CHIP }} --test=gpio --no-run
+          zip -r target.zip target
+          mkdir results-zio
+
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: target-zip
+          path: hil-test/target.zip
+          if-no-files-found: error
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: target-zip
+          path: hil-test/results-zio
+
+      - run: ls -R hil-test/results-zio
