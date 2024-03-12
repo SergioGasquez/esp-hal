@@ -799,13 +799,13 @@ where
     fn change_baud(&self, baudrate: u32, clocks: &Clocks) {
         // we force the clock source to be APB and don't use the decimal part of the
         // divider
-        let clk = clocks.apb_clock.to_Hz();
+        let clk = clocks.xtal_clock.to_Hz();
         let max_div = 0b1111_1111_1111 - 1;
         let clk_div = ((clk) + (max_div * baudrate) - 1) / (max_div * baudrate);
 
         T::register_block().clk_conf().write(|w| unsafe {
             w.sclk_sel()
-                .bits(1) // APB
+                .bits(3) // 1: APB, 2: RC_FAST 3:XTAL
                 .sclk_div_a()
                 .bits(0)
                 .sclk_div_b()
@@ -851,7 +851,8 @@ where
                         .uart0_sclk_div_num()
                         .bits(clk_div as u8 - 1)
                         .uart0_sclk_sel()
-                        .bits(0x3) // TODO: this probably shouldn't be hard-coded
+                        // TODO: this probably shouldn't be hard-coded
+                        .bits(0x3) // 1: PLL, 2: RTC, 3: XTAL
                         .uart0_sclk_en()
                         .set_bit()
                 });
