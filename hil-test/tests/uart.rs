@@ -45,7 +45,7 @@ impl Context {
             stop_bits: StopBits::STOP1,
         };
 
-        let uart = Uart::new_with_config(peripherals.UART0, config, Some(pins), &clocks);
+        let uart = Uart::new_with_config(peripherals.UART0, config, Some(pins), &clocks)
 
         Context { uart }
     }
