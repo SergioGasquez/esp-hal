@@ -43,8 +43,7 @@ esp-backtrace       = { version = "0.11.1", git = "https://github.com/esp-rs/esp
 critical-section   = { version = "1.1.2" }
 portable-atomic = "1"
 cfg-if = "1"
-
-
+semihosting = "0.1.7"
 
 [dev-dependencies]
 embassy-executor = { default-features = false, version = "0.5.0", features = ["executor-thread", "arch-riscv32"], optional = true }
