@@ -34,11 +34,17 @@ embedded-hal       = { version = "1.0.0" }
 embedded-hal-02    = { version = "0.2.7", package = "embedded-hal", features = ["unproven"] }
 embedded-hal-async = { version = "1.0.0", optional = true }
 embedded-hal-nb    = { version = "1.0.0", optional = true }
-esp-hal            = { path = "../esp-hal", features = ["defmt", "embedded-hal", "embedded-hal-02"], optional = true }
+esp-hal = { path = "../esp-hal", features = [
+    "defmt",
+    "embedded-hal",
+    "embedded-hal-02",
+], optional = true }
 esp-backtrace       = { version = "0.11.1", git = "https://github.com/esp-rs/esp-backtrace", rev = "edff83c3945e8aa11081d8467af65803a82434ba", default-features = false, features = ["exception-handler", "panic-handler", "defmt", "semihosting"] }
 critical-section   = { version = "1.1.2" }
 portable-atomic = "1"
 cfg-if = "1"
+
+
 
 [dev-dependencies]
 embassy-executor = { default-features = false, version = "0.5.0", features = ["executor-thread", "arch-riscv32"], optional = true }
