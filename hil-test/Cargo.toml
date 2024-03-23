@@ -43,12 +43,12 @@ esp-backtrace       = { version = "0.11.1", git = "https://github.com/esp-rs/esp
 critical-section   = { version = "1.1.2" }
 portable-atomic = "1"
 cfg-if = "1"
-semihosting = "0.1.7"
 
 [dev-dependencies]
 embassy-executor = { default-features = false, version = "0.5.0", features = ["executor-thread", "arch-riscv32"], optional = true }
 # Add the `embedded-test/defmt` feature for more verbose testing
 embedded-test = { git = "https://github.com/probe-rs/embedded-test", rev = "b67dec33992f5bd79d414a0e70220dc4142278cf", default-features = false }
+semihosting = "0.1.7"
 
 [features]
 default = ["async", "embassy", "embassy-time-timg0"]
