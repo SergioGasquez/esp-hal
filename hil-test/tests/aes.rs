@@ -5,23 +5,6 @@
 
 use defmt_rtt as _;
 use esp_backtrace as _;
-use esp_hal::{
-    aes::{Aes, Mode},
-    peripherals::Peripherals,
-};
-
-struct Context<'a> {
-    aes: Aes<'a>,
-}
-
-impl Context<'_> {
-    pub fn init() -> Self {
-        let peripherals = Peripherals::take();
-        let aes = Aes::new(peripherals.AES);
-
-        Context { aes }
-    }
-}
 
 #[cfg(not(any(
     feature = "esp32c3",
@@ -33,10 +16,6 @@ mod not_test {
     #[esp_hal::entry]
     fn main() -> ! {
         semihosting::process::exit(0)
-    }
-    #[panic_handler]
-    fn panic(_info: &core::panic::PanicInfo) -> ! {
-        loop {}
     }
 }
 
@@ -50,6 +29,23 @@ mod not_test {
 #[embedded_test::tests]
 mod tests {
     use defmt::assert_eq;
+    use esp_hal::{
+        aes::{Aes, Mode},
+        peripherals::Peripherals,
+    };
+
+    struct Context<'a> {
+        aes: Aes<'a>,
+    }
+
+    impl Context<'_> {
+        pub fn init() -> Self {
+            let peripherals = Peripherals::take();
+            let aes = Aes::new(peripherals.AES);
+
+            Context { aes }
+        }
+    }
 
     use super::*;
 
