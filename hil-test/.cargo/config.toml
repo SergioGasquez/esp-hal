@@ -1,5 +1,5 @@
 [alias]
-# esp32   = "test --release --features=esp32   --target=xtensa-esp32-none-elf -- --chip esp32-3.3v"
+esp32   = "test --release --features=esp32   --target=xtensa-esp32-none-elf -- --chip esp32-3.3v"
 # esp32c2 = "test --release --features=esp32c2 --target=riscv32imc-unknown-none-elf -- --chip esp32c2"
 esp32c3 = "test --release --features=esp32c3 --target=riscv32imc-unknown-none-elf -- --chip esp32c3"
 esp32c6 = "test --release --features=esp32c6 --target=riscv32imac-unknown-none-elf -- --chip esp32c6"
