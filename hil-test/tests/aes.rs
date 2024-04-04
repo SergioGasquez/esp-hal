@@ -24,9 +24,11 @@ impl Context<'_> {
 }
 
 #[cfg(not(any(
+    feature = "esp32",
     feature = "esp32c3",
     feature = "esp32c6",
     feature = "esp32h2",
+    feature = "esp32s2",
     feature = "esp32s3"
 )))]
 mod not_test {
@@ -42,9 +44,11 @@ mod not_test {
 
 #[cfg(test)]
 #[cfg(any(
+    feature = "esp32",
     feature = "esp32c3",
     feature = "esp32c6",
     feature = "esp32h2",
+    feature = "esp32s2",
     feature = "esp32s3"
 ))]
 #[embedded_test::tests]
