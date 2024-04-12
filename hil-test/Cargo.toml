@@ -17,6 +17,10 @@ name    = "gpio"
 harness = false
 
 [[test]]
+name    = "gpio_issue"
+harness = false
+
+[[test]]
 name    = "spi_full_duplex"
 harness = false
 
@@ -68,7 +72,7 @@ p192                = { version = "0.13.0", default-features = false, features =
 p256                = { version = "0.13.2", default-features = false, features = ["arithmetic"] }
 
 [features]
-default = ["async", "embassy", "embassy-executor-thread", "embassy-time-timg0"]
+default = ["embassy", "embassy-executor-thread", "embassy-time-timg0"]
 
 # Device support (required!):
 esp32 = [
