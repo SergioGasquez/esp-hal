@@ -1,14 +1,14 @@
-#[cfg(any(esp32c3, esp32c6, esp32s3))]
+#[cfg(not(any(esp32, esp32c2, esp32p4, esp32s2)))]
 pub use self::curve::{AdcCalCurve, AdcHasCurveCal};
-#[cfg(any(esp32c2, esp32c3, esp32c6, esp32s3))]
+#[cfg(not(any(esp32, esp32p4, esp32s2)))]
 pub use self::{
     basic::AdcCalBasic,
     line::{AdcCalLine, AdcHasLineCal},
 };
 
-#[cfg(any(esp32c2, esp32c3, esp32c6, esp32s3))]
+#[cfg(not(any(esp32, esp32p4, esp32s2)))]
 mod basic;
-#[cfg(any(esp32c3, esp32c6, esp32s3))]
+#[cfg(not(any(esp32, esp32c2, esp32p4, esp32s2)))]
 mod curve;
-#[cfg(any(esp32c2, esp32c3, esp32c6, esp32s3))]
+#[cfg(not(any(esp32, esp32p4, esp32s2)))]
 mod line;

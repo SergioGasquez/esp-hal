@@ -183,7 +183,6 @@ impl<ADCI> AdcCalScheme<ADCI> for () {
 }
 
 /// A helper trait to get access to ADC calibration efuses.
-#[cfg(not(esp32h2))]
 trait AdcCalEfuse {
     /// Get ADC calibration init code
     ///

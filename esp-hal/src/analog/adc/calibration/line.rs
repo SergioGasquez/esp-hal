@@ -77,7 +77,14 @@ where
         //
         // Note that the constant term is zero because the basic calibration takes care
         // of it already.
-        let gain = mv as u32 * GAIN_SCALE / code as u32;
+
+        // FIXME
+        // let gain = if let Some(mv) = mv {
+        //     mv as u32 * GAIN_SCALE / code as u32
+        // } else {
+        //     1
+        // };
+        let gain = mv.unwrap() as u32 * GAIN_SCALE / code as u32;
 
         Self {
             basic,
@@ -97,7 +104,7 @@ where
     }
 }
 
-#[cfg(any(esp32c2, esp32c3, esp32c6, esp32s3))]
+#[cfg(any(esp32c2, esp32c3, esp32c6, esp32h2, esp32s3))]
 impl AdcHasLineCal for crate::peripherals::ADC1 {}
 
 #[cfg(any(esp32c3, esp32s3))]

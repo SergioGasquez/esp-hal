@@ -1,11 +1,11 @@
-#[cfg(not(esp32h2))]
+use core::marker::PhantomData;
+
 pub use self::calibration::*;
-use super::{AdcCalSource, AdcConfig, Attenuation};
+use super::{AdcCalEfuse, AdcCalScheme, AdcCalSource, AdcChannel, Attenuation};
 #[cfg(any(esp32c6, esp32h2))]
 use crate::clock::clocks_ll::regi2c_write_mask;
-#[cfg(any(esp32c2, esp32c3, esp32c6))]
-use crate::efuse::Efuse;
 use crate::{
+    efuse::Efuse,
     peripheral::PeripheralRef,
     peripherals::APB_SARADC,
     system::{Peripheral, PeripheralClockControl},
@@ -431,6 +431,27 @@ where
             attenuations: config.attenuations,
             active_channel: None,
         }
+    }
+
+#[cfg(any(esp32c2, esp32c3, esp32c6, esp32h2))]
+impl AdcCalEfuse for crate::peripherals::ADC1 {
+    fn get_init_code(atten: Attenuation) -> Option<u16> {
+        Efuse::get_rtc_calib_init_code(1, atten)
+    }
+
+    fn get_cal_mv(atten: Attenuation) -> Option<u16> {
+        Efuse::get_rtc_calib_cal_mv(1, atten)
+    }
+
+    fn get_cal_code(atten: Attenuation) -> Option<u16> {
+        Efuse::get_rtc_calib_cal_code(1, atten)
+    }
+}
+
+#[cfg(esp32c3)]
+impl AdcCalEfuse for crate::peripherals::ADC2 {
+    fn get_init_code(atten: Attenuation) -> Option<u16> {
+        Efuse::get_rtc_calib_init_code(2, atten)
     }
 
     /// Request that the ADC begin a conversion on the specified pin

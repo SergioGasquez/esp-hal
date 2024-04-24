@@ -34,7 +34,7 @@
 //! ```
 
 pub use self::fields::*;
-use crate::peripherals::EFUSE;
+use crate::{analog::adc::Attenuation, peripherals::EFUSE};
 
 mod fields;
 
@@ -54,6 +54,117 @@ impl Efuse {
     /// Get the multiplier for the timeout value of the RWDT STAGE 0 register.
     pub fn get_rwdt_multiplier() -> u8 {
         Self::read_field_le::<u8>(WDT_DELAY_SEL)
+    }
+
+    /// Get efuse block version
+    ///
+    /// See: <https://github.com/espressif/esp-idf/blob/dc016f5987/components/hal/efuse_hal.c#L27-L30>
+    pub fn get_block_version() -> (u8, u8) {
+        (
+            Self::read_field_le::<u8>(BLK_VERSION_MAJOR),
+            Self::read_field_le::<u8>(BLK_VERSION_MINOR),
+        )
+    }
+
+    /// Get version of RTC calibration block
+    ///
+    /// see <https://github.com/espressif/esp-idf/blob/be06a6f/components/efuse/esp32h2/esp_efuse_rtc_calib.c#L20>
+    pub fn get_rtc_calib_version() -> u8 {
+        let (_major, minor) = Self::get_block_version();
+        log::info!("{_major}  {minor}");
+        if minor >= 2 {
+            1
+        } else {
+            0
+        }
+    }
+
+    /// Get ADC initial code for specified attenuation from efuse
+    ///
+    /// See: <https://github.com/espressif/esp-idf/blob/be06a6f/components/efuse/esp32h2/esp_efuse_rtc_calib.c#L33>
+    pub fn get_rtc_calib_init_code(_unit: u8, atten: Attenuation) -> Option<u16> {
+        log::info!("get_rtc_calib_init_code()");
+        let version = Self::get_rtc_calib_version();
+        log::info!("{version}");
+
+        if version < 2 {
+            return None;
+        }
+
+        // See: <https://github.com/espressif/esp-idf/blob/be06a6f/components/efuse/esp32h2/esp_efuse_table.csv#L76-L79>
+        let init_code: u16 = Self::read_field_le(match atten {
+            Attenuation::Attenuation0dB => ADC1_AVE_INITCODE_ATTEN0,
+            Attenuation::Attenuation2p5dB => ADC1_AVE_INITCODE_ATTEN1,
+            Attenuation::Attenuation6dB => ADC1_AVE_INITCODE_ATTEN2,
+            Attenuation::Attenuation11dB => ADC1_AVE_INITCODE_ATTEN3,
+        });
+
+        Some(init_code + 1600) // version 1 logic
+    }
+
+    /// Get ADC reference point voltage for specified attenuation in millivolts
+    ///
+    /// See: <https://github.com/espressif/esp-idf/blob/be06a6f/components/efuse/esp32h2/esp_efuse_rtc_calib.c#L91>
+    pub fn get_rtc_calib_cal_mv(_unit: u8, atten: Attenuation) -> Option<u16> {
+        const INPUT_VOUT_MV: [[u16; 4]; 1] = [
+            [750, 1000, 1500, 2800], // Calibration V1 coefficients
+        ];
+
+        let version = Self::get_rtc_calib_version();
+
+        if version != 2 {
+            return None;
+        }
+
+        let mv = INPUT_VOUT_MV[version as usize - 1][atten as usize];
+
+        Some(mv)
+    }
+
+    /// Get ADC reference point digital code for specified attenuation
+    ///
+    /// See: <https://github.com/espressif/esp-idf/blob/be06a6f/components/efuse/esp32h2/esp_efuse_rtc_calib.c#L20>
+    pub fn get_rtc_calib_cal_code(_unit: u8, atten: Attenuation) -> Option<u16> {
+        let version = Self::get_rtc_calib_version();
+
+        if version < 2 {
+            return None;
+        }
+
+        // See: <https://github.com/espressif/esp-idf/blob/be06a6f/components/efuse/esp32h2/esp_efuse_table.csv#L180C1-L183>
+        let cal_code: u16 = Self::read_field_le(match atten {
+            Attenuation::Attenuation0dB => ADC1_HI_DOUT_ATTEN0,
+            Attenuation::Attenuation2p5dB => ADC1_HI_DOUT_ATTEN1,
+            Attenuation::Attenuation6dB => ADC1_HI_DOUT_ATTEN2,
+            Attenuation::Attenuation11dB => ADC1_HI_DOUT_ATTEN3,
+        });
+
+        // TODO: Verify these magic numbers somehow?
+        let cal_code = if cal_code & (1 << 9) != 0 {
+            1500 - (cal_code & !(1 << 9))
+        } else {
+            1500 + cal_code
+        };
+
+        Some(cal_code)
+    }
+
+    /// Returns the major hardware revision
+    pub fn major_chip_version() -> u8 {
+        Self::read_field_le(WAFER_VERSION_MAJOR)
+    }
+
+    /// Returns the minor hardware revision
+    pub fn minor_chip_version() -> u8 {
+        Self::read_field_le(WAFER_VERSION_MINOR)
+    }
+
+    /// Returns the hardware revision
+    ///
+    /// The chip version is calculated using the following
+    /// formula: MAJOR * 100 + MINOR. (if the result is 1, then version is v0.1)
+    pub fn chip_revision() -> u16 {
+        Self::major_chip_version() as u16 * 100 + Self::minor_chip_version() as u16
     }
 }
 
