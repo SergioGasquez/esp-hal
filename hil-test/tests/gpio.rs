@@ -2,7 +2,7 @@
 //!
 //! Folowing pins are used:
 //! GPIO2
-//! GPIO4
+//! GPIO3
 
 //% CHIPS: esp32 esp32c2 esp32c3 esp32c6 esp32h2 esp32s2 esp32s3
 
@@ -31,7 +31,7 @@ static INPUT_PIN: Mutex<RefCell<Option<esp_hal::gpio::Gpio2<Input<PullDown>>>>> 
 
 struct Context {
     io2: GpioPin<Input<PullDown>, 2>,
-    io4: GpioPin<Output<PushPull>, 4>,
+    io3: GpioPin<Output<PushPull>, 3>,
     delay: Delay,
 }
 
@@ -51,7 +51,7 @@ impl Context {
 
         Context {
             io2: io.pins.gpio2.into_pull_down_input(),
-            io4: io.pins.gpio4.into_push_pull_output(),
+            io3: io.pins.gpio3.into_push_pull_output(),
             delay,
         }
     }
@@ -84,7 +84,7 @@ mod tests {
     fn init() -> Context {
         let mut ctx = Context::init();
         // make sure tests don't interfere with each other
-        ctx.io4.set_low();
+        ctx.io3.set_low();
         ctx
     }
 
@@ -92,7 +92,7 @@ mod tests {
     async fn test_async_edge(ctx: Context) {
         let counter = AtomicUsize::new(0);
         let Context {
-            mut io2, mut io4, ..
+            mut io2, mut io3, ..
         } = ctx;
         embassy_futures::select::select(
             async {
@@ -103,9 +103,9 @@ mod tests {
             },
             async {
                 for _ in 0..5 {
-                    io4.set_high();
+                    io3.set_high();
                     Timer::after(Duration::from_millis(25)).await;
-                    io4.set_low();
+                    io3.set_low();
                     Timer::after(Duration::from_millis(25)).await;
                 }
             },
@@ -137,19 +137,19 @@ mod tests {
     #[test]
     fn test_gpio_output(mut ctx: Context) {
         // `StatefulOutputPin`:
-        assert_eq!(ctx.io4.is_set_low(), true);
-        assert_eq!(ctx.io4.is_set_high(), false);
-        ctx.io4.set_high();
-        assert_eq!(ctx.io4.is_set_low(), false);
-        assert_eq!(ctx.io4.is_set_high(), true);
+        assert_eq!(ctx.io3.is_set_low(), true);
+        assert_eq!(ctx.io3.is_set_high(), false);
+        ctx.io3.set_high();
+        assert_eq!(ctx.io3.is_set_low(), false);
+        assert_eq!(ctx.io3.is_set_high(), true);
 
         // `ToggleableOutputPin`:
-        ctx.io4.toggle();
-        assert_eq!(ctx.io4.is_set_low(), true);
-        assert_eq!(ctx.io4.is_set_high(), false);
-        ctx.io4.toggle();
-        assert_eq!(ctx.io4.is_set_low(), false);
-        assert_eq!(ctx.io4.is_set_high(), true);
+        ctx.io3.toggle();
+        assert_eq!(ctx.io3.is_set_low(), true);
+        assert_eq!(ctx.io3.is_set_high(), false);
+        ctx.io3.toggle();
+        assert_eq!(ctx.io3.is_set_low(), false);
+        assert_eq!(ctx.io3.is_set_high(), true);
     }
 
     #[test]
@@ -160,23 +160,23 @@ mod tests {
             ctx.io2.listen(Event::AnyEdge);
             INPUT_PIN.borrow_ref_mut(cs).replace(ctx.io2);
         });
-        ctx.io4.set_high();
+        ctx.io3.set_high();
         ctx.delay.delay_millis(1);
-        ctx.io4.set_low();
+        ctx.io3.set_low();
         ctx.delay.delay_millis(1);
-        ctx.io4.set_high();
+        ctx.io3.set_high();
         ctx.delay.delay_millis(1);
-        ctx.io4.set_low();
+        ctx.io3.set_low();
         ctx.delay.delay_millis(1);
-        ctx.io4.set_high();
+        ctx.io3.set_high();
         ctx.delay.delay_millis(1);
-        ctx.io4.set_low();
+        ctx.io3.set_low();
         ctx.delay.delay_millis(1);
-        ctx.io4.set_high();
+        ctx.io3.set_high();
         ctx.delay.delay_millis(1);
-        ctx.io4.set_low();
+        ctx.io3.set_low();
         ctx.delay.delay_millis(1);
-        ctx.io4.set_high();
+        ctx.io3.set_high();
         ctx.delay.delay_millis(1);
 
         let count = critical_section::with(|cs| *COUNTER.borrow_ref(cs));
@@ -190,35 +190,35 @@ mod tests {
     fn test_gpio_od(ctx: Context) {
         let mut io2 = ctx.io2.into_open_drain_output();
         io2.internal_pull_up(true);
-        let mut io4 = ctx.io4.into_open_drain_output();
-        io4.internal_pull_up(true);
+        let mut io3 = ctx.io3.into_open_drain_output();
+        io3.internal_pull_up(true);
 
         io2.set_high();
-        io4.set_high();
+        io3.set_high();
         ctx.delay.delay_millis(1);
 
         assert_eq!(io2.is_high(), true);
-        assert_eq!(io4.is_high(), true);
+        assert_eq!(io3.is_high(), true);
 
         io2.set_low();
-        io4.set_high();
+        io3.set_high();
         ctx.delay.delay_millis(1);
 
         assert_eq!(io2.is_low(), true);
-        assert_eq!(io4.is_low(), true);
+        assert_eq!(io3.is_low(), true);
 
         io2.set_high();
-        io4.set_high();
+        io3.set_high();
         ctx.delay.delay_millis(1);
 
         assert_eq!(io2.is_high(), true);
-        assert_eq!(io4.is_high(), true);
+        assert_eq!(io3.is_high(), true);
 
         io2.set_high();
-        io4.set_low();
+        io3.set_low();
         ctx.delay.delay_millis(1);
 
         assert_eq!(io2.is_low(), true);
-        assert_eq!(io4.is_low(), true);
+        assert_eq!(io3.is_low(), true);
     }
 }
