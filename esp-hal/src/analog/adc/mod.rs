@@ -117,6 +117,7 @@ impl<ADCI> AdcConfig<ADCI> {
         PIN: AdcChannel,
         CS: AdcCalScheme<ADCI>,
     {
+        esp_println::println!("AdcConfig::enable_pin_with_cal()");
         self.attenuations[PIN::CHANNEL as usize] = Some(attenuation);
 
         AdcPin {
@@ -179,7 +180,13 @@ pub trait AdcCalScheme<ADCI>: Sized + crate::private::Sealed {
 impl crate::private::Sealed for () {}
 
 impl<ADCI> AdcCalScheme<ADCI> for () {
-    fn new_cal(_atten: Attenuation) -> Self {}
+    fn new_cal(_atten: Attenuation) -> Self {
+        esp_println::println!("AdcCalScheme::new_caddddl()");
+        // let cal_val = ADCI::get_init_code(atten).unwrap_or_else(|| {
+        //     // As a fallback try to calibrate via connecting input to ground
+        // internally.     AdcConfig::<ADCI>::adc_calibrate(atten,
+        // AdcCalSource::Gnd) });
+    }
 }
 
 /// A helper trait to get access to ADC calibration efuses.
@@ -192,7 +199,7 @@ trait AdcCalEfuse {
     /// Get ADC calibration reference point voltage
     ///
     /// Returns reference voltage (millivolts) for a given attenuation
-    fn get_cal_mv(atten: Attenuation) -> u16;
+    fn get_cal_mv(atten: Attenuation) -> Option<u16>;
 
     /// Get ADC calibration reference point digital value
     ///

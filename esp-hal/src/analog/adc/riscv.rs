@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 pub use self::calibration::*;
-use super::{AdcCalEfuse, AdcCalScheme, AdcCalSource, AdcChannel, Attenuation};
+use super::{AdcCalEfuse, AdcCalScheme, AdcCalSource, AdcChannel, AdcConfig, Attenuation};
 #[cfg(any(esp32c6, esp32h2))]
 use crate::clock::clocks_ll::regi2c_write_mask;
 use crate::{
@@ -432,6 +432,7 @@ where
             active_channel: None,
         }
     }
+}
 
 #[cfg(any(esp32c2, esp32c3, esp32c6, esp32h2))]
 impl AdcCalEfuse for crate::peripherals::ADC1 {
@@ -492,11 +493,9 @@ impl AdcCalEfuse for crate::peripherals::ADC2 {
 
             // see https://github.com/espressif/esp-idf/blob/b4268c874a4cf8fcf7c0c4153cffb76ad2ddda4e/components/hal/adc_oneshot_hal.c#L105-L107
             // the delay might be a bit generous but longer delay seem to not cause problems
-            #[cfg(esp32c6)]
-            {
-                crate::rom::ets_delay_us(40);
-                ADCI::start_onetime_sample();
-            }
+
+            crate::rom::ets_delay_us(40);
+            ADCI::start_onetime_sample();
         }
 
         // Wait for ADC to finish conversion
@@ -535,7 +534,7 @@ impl super::AdcCalEfuse for crate::peripherals::ADC1 {
         Efuse::get_rtc_calib_init_code(1, atten)
     }
 
-    fn get_cal_mv(atten: Attenuation) -> u16 {
+    fn get_cal_mv(atten: Attenuation) -> Option<u16> {
         Efuse::get_rtc_calib_cal_mv(1, atten)
     }
 
@@ -550,7 +549,7 @@ impl super::AdcCalEfuse for crate::peripherals::ADC2 {
         Efuse::get_rtc_calib_init_code(2, atten)
     }
 
-    fn get_cal_mv(atten: Attenuation) -> u16 {
+    fn get_cal_mv(atten: Attenuation) -> Option<u16> {
         Efuse::get_rtc_calib_cal_mv(2, atten)
     }
 

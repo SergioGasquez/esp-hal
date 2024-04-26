@@ -135,8 +135,8 @@ impl Efuse {
     /// Get ADC reference point voltage for specified attenuation in millivolts
     ///
     /// see <https://github.com/espressif/esp-idf/blob/903af13e8/components/efuse/esp32s3/esp_efuse_rtc_calib.c#L63>
-    pub fn get_rtc_calib_cal_mv(_unit: u8, _atten: Attenuation) -> u16 {
-        850
+    pub fn get_rtc_calib_cal_mv(_unit: u8, _atten: Attenuation) -> Option<u16> {
+        Some(850)
     }
 
     /// Get ADC reference point digital code for specified attenuation

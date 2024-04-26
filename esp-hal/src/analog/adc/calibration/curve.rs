@@ -67,6 +67,8 @@ where
     ADCI: AdcCalEfuse + AdcHasLineCal + AdcHasCurveCal + CalibrationAccess,
 {
     fn new_cal(atten: Attenuation) -> Self {
+        esp_println::println!("Curve new_cal()");
+
         let line = AdcCalLine::<ADCI>::new_cal(atten);
 
         let coeff = ADCI::CURVES_COEFFS

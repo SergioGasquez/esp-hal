@@ -579,7 +579,7 @@ impl super::AdcCalEfuse for crate::peripherals::ADC1 {
         Efuse::get_rtc_calib_init_code(1, atten)
     }
 
-    fn get_cal_mv(atten: Attenuation) -> u16 {
+    fn get_cal_mv(atten: Attenuation) -> Option<u16> {
         Efuse::get_rtc_calib_cal_mv(1, atten)
     }
 
@@ -594,7 +594,7 @@ impl super::AdcCalEfuse for crate::peripherals::ADC2 {
         Efuse::get_rtc_calib_init_code(2, atten)
     }
 
-    fn get_cal_mv(atten: Attenuation) -> u16 {
+    fn get_cal_mv(atten: Attenuation) -> Option<u16> {
         Efuse::get_rtc_calib_cal_mv(2, atten)
     }
 

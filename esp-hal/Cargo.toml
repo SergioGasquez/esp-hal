@@ -49,6 +49,8 @@ rand_core            = "0.6.4"
 ufmt-write           = { version = "0.1.0", optional = true }
 xtensa-lx            = { version = "0.9.0", optional = true }
 
+esp-println = "0.9.1"
+
 # IMPORTANT:
 # Each supported device MUST have its PAC included below along with a
 # corresponding feature.
@@ -108,7 +110,7 @@ esp32c3 = ["dep:esp32c3", "riscv",  "portable-atomic/unsafe-assume-single-core",
 # Target the ESP32-C6.
 esp32c6 = ["dep:esp32c6", "riscv",  "procmacros/has-lp-core", "rv-zero-rtc-bss"]
 # Target the ESP32-H2.
-esp32h2 = ["dep:esp32h2", "riscv", "rv-zero-rtc-bss"]
+esp32h2 = ["dep:esp32h2", "riscv", "rv-zero-rtc-bss", "esp-println/esp32h2"]
 # Target the ESP32-S2.
 esp32s2 = ["dep:esp32s2", "xtensa", "portable-atomic/critical-section", "procmacros/has-ulp-core", "xtensa-lx-rt/esp32s2", "usb-otg"]
 # Target the ESP32-S3.
@@ -175,11 +177,11 @@ embassy-executor-thread = ["embassy", "embassy-executor"]
 ## by the time driver.
 embassy-integrated-timers = ["embassy-executor?/integrated-timers"]
 ## Enable the embassy time driver using the `SYSTIMER` peripheral. The
-## `SYSTIMER` peripheral has three alarams available for use. Do **not** 
+## `SYSTIMER` peripheral has three alarams available for use. Do **not**
 ## use when targeting an `esp32s2`.
 embassy-time-systick-16mhz = ["embassy-time-driver/tick-hz-16_000_000"]
 ## Enable the embassy time driver using the `SYSTIMER` peripheral. The
-## `SYSTIMER` peripheral has three alarams available for use. Must only 
+## `SYSTIMER` peripheral has three alarams available for use. Must only
 ## be used when targeting an `esp32s2`.
 embassy-time-systick-80mhz = ["embassy-time-driver/tick-hz-80_000_000"]
 ## Enable the embassy time driver using the `TIMG0` peripheral. The `TIMG0`

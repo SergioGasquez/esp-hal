@@ -106,10 +106,10 @@ impl Efuse {
     /// see <https://github.com/espressif/esp-idf/blob/903af13e8/components/efuse/esp32c6/esp_efuse_rtc_calib.c#L42>
     pub fn get_rtc_calib_cal_mv(_unit: u8, atten: Attenuation) -> u16 {
         match atten {
-            Attenuation::Attenuation0dB => 400,
-            Attenuation::Attenuation2p5dB => 550,
-            Attenuation::Attenuation6dB => 750,
-            Attenuation::Attenuation11dB => 1370,
+            Attenuation::Attenuation0dB => Some(400),
+            Attenuation::Attenuation2p5dB => Some(550),
+            Attenuation::Attenuation6dB => Some(750),
+            Attenuation::Attenuation11dB => Some(1370),
         }
     }
 

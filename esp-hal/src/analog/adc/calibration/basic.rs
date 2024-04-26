@@ -34,6 +34,7 @@ where
     ADCI: AdcCalEfuse + CalibrationAccess,
 {
     fn new_cal(atten: Attenuation) -> Self {
+        esp_println::println!("Bascic new_cal()");
         // Try to get init code (Dout0) from efuse
         // Dout0 means mean raw ADC value when zero voltage applied to input.
         let cal_val = ADCI::get_init_code(atten).unwrap_or_else(|| {

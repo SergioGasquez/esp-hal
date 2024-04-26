@@ -55,6 +55,8 @@ where
     ADCI: AdcCalEfuse + AdcHasLineCal + CalibrationAccess,
 {
     fn new_cal(atten: Attenuation) -> Self {
+        esp_println::println!("Line new_cal()");
+
         let basic = AdcCalBasic::<ADCI>::new_cal(atten);
 
         // Try get the reference point (Dout, Vin) from efuse
@@ -67,7 +69,7 @@ where
                 // in range 1000..=1200 mV and this value currently cannot be read from efuse.
                 (
                     AdcConfig::<ADCI>::adc_calibrate(atten, AdcCalSource::Ref),
-                    1100, // use 1100 mV as a middle of typical reference voltage range
+                    Some(1100), // use 1100 mV as a middle of typical reference voltage range
                 )
             });
 
@@ -84,7 +86,8 @@ where
         // } else {
         //     1
         // };
-        let gain = mv.unwrap() as u32 * GAIN_SCALE / code as u32;
+        // let gain = mv.unwrap() as u32 * GAIN_SCALE / code as u32;
+        let gain = 2;
 
         Self {
             basic,
