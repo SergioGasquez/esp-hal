@@ -6,7 +6,13 @@
 use defmt_rtt as _;
 use embedded_hal::delay::DelayNs;
 use esp_backtrace as _;
-use esp_hal::{clock::ClockControl, delay::Delay, peripherals::Peripherals, prelude::*};
+use esp_hal::{
+    clock::ClockControl,
+    delay::Delay,
+    peripherals::Peripherals,
+    prelude::*,
+    system::SystemControl,
+};
 
 struct Context {
     delay: Delay,
@@ -15,7 +21,7 @@ struct Context {
 impl Context {
     pub fn init() -> Self {
         let peripherals = Peripherals::take();
-        let system = peripherals.SYSTEM.split();
+        let system = SystemControl::new(peripherals.SYSTEM);
         let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
 
         let delay = Delay::new(&clocks);
@@ -32,6 +38,17 @@ mod tests {
     #[init]
     fn init() -> Context {
         Context::init()
+    }
+
+    #[test]
+    #[timeout(1)]
+    fn delay_ns(mut ctx: Context) {
+        let t1 = esp_hal::time::current_time();
+        ctx.delay.delay_ns(600_000_000);
+        let t2 = esp_hal::time::current_time();
+
+        assert!(t2 > t1);
+        assert!((t2 - t1).to_nanos() >= 600_000_000u64);
     }
 
     #[test]
