@@ -2,7 +2,7 @@
 //! rotating the shaft. Alternatively you could also connect the PIN to GND or
 //! 3V3 to see the maximum and minimum raw values read.
 
-//% CHIPS: esp32c2 esp32c3 esp32c6 esp32s3
+//% CHIPS: esp32c2 esp32c3 esp32c6 esp32s2 esp32s3
 
 #![no_std]
 #![no_main]
@@ -39,9 +39,9 @@ fn main() -> ! {
     // them. Note that only AdcCalLine returns readings in mV; the other two
     // return raw readings in some unspecified scale.
     //
-    type AdcCal = ();
+    // type AdcCal = ();
     // type AdcCal = esp_hal::analog::adc::AdcCalBasic<ADC1>;
-    // type AdcCal = esp_hal::analog::adc::AdcCalLine<ADC1>;
+    type AdcCal = esp_hal::analog::adc::AdcCalLine<ADC1>;
     // type AdcCal = esp_hal::analog::adc::AdcCalCurve<ADC1>;
 
     let mut adc1_config = AdcConfig::new();

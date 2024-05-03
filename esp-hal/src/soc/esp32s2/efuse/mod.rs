@@ -71,6 +71,65 @@ impl Efuse {
     pub fn get_rwdt_multiplier() -> u8 {
         Self::read_field_le::<u8>(WDT_DELAY_SEL)
     }
+
+    /// Get efuse block version
+    ///
+    /// see <https://github.com/espressif/esp-idf/blob/dc016f5987/components/hal/efuse_hal.c#L27-L30>
+    pub fn get_block_version() -> (u8, u8) {
+        // see <https://github.com/espressif/esp-idf/blob/dc016f5987/components/hal/esp32s3/include/hal/efuse_ll.h#L65-L73>
+        // <https://github.com/espressif/esp-idf/blob/903af13e8/components/efuse/esp32s3/esp_efuse_table.csv#L196>
+        (
+            Self::read_field_le::<u8>(BLK_VERSION_MAJOR),
+            Self::read_field_le::<u8>(BLK_VERSION_MINOR),
+        )
+    }
+
+    // TODO: Missing esp_efuse_rtc_calib_get_tsens_val (https://github.com/espressif/esp-idf/blob/903af13e8/components/efuse/esp32s2/esp_efuse_rtc_calib.c#L150)
+    // S3 equivalent: https://github.com/espressif/esp-idf/blob/903af13e8/components/efuse/esp32s3/esp_efuse_rtc_calib.c#L95
+    pub fn get_rtc_calib_init_code(unit: u8, atten: Attenuation) -> Option<u16> {
+        // esp_efuse_rtc_table_read_calib_version just calls
+        // efuse_ll_get_blk_version_minor
+        let minor_version = Self::read_field_le::<u8>(BLK_VERSION_MINOR);
+        if minor_version != 1 && minor_version != 2 {
+            return None;
+        }
+        // BLOCK 2
+        // BEGIN_BIT 135
+        // LENGTH 9
+        // MULTIPLIER 4
+        // OFFSET BASE 0
+        // OFFSET DEP 0
+        const RTCCALIB_IDX_TMPSENSOR = 33;
+        let tsens_cal = esp_efuse_rtc_table_get_parsed_efuse_value(RTCCALIB_IDX_TMPSENSOR, false);
+
+        Some (tsens_cal)
+    }
+
+    // components/efuse/esp32s2/esp32_efuese_rtc_table.c::145
+    pub fn esp_efuse_rtc_table_get_parsed_efuse_value(tag: u8, skip_efuse_reading: false) -> u32 {
+        if tag == 0 {
+            return 0; // tag 0 is the dummy tag and has no value. (used by depends)
+        }
+        let mut efuse_val  = 0;
+        if !skip_efuse_reading {
+            efuse_val =  esp_efuse_rtc_table_get_raw_efuse_value(tag) * 4; // 4 = multiplier
+        }
+
+        let result  = efuse_val + 0 + 0; // efuse val + base + dep
+
+        result
+    }
+
+    pub fn esp_efuse_rtc_table_get_raw_efuse_value(tag: u32) -> u32 {
+        if tag == 0 {
+            return 0;
+        }
+        let mut val = 0;
+        //  esp_efuse_read_block(adc_efuse_raw_map[tag].block, &val, adc_efuse_raw_map[tag].begin_bit, adc_efuse_raw_map[tag].length);
+
+
+
+    }
 }
 
 #[derive(Copy, Clone)]
