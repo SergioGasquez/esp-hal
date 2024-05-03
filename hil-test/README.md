@@ -56,7 +56,7 @@ Some tests will require physical connections, please see the current [configurat
 The [`hil.yml`] workflow builds the test suite for all our available targets and executes them.
 
 Our Virtual Machines have the following setup:
-- ESP32-C3 (`esp32c2-jtag`):
+- ESP32-C2 (`esp32c2-jtag`):
   - Devkit: `ESP8684-DevKitM-1` connected via UART.
     - `GPIO2` and `GPIO3` are connected.
   - Probe: `ESP-Prog` connected with the [following connections](https://docs.espressif.com/projects/esp-idf/en/stable/esp32c2/api-guides/jtag-debugging/configure-other-jtag.html#configure-hardware)
