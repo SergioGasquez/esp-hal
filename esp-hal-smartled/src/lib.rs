@@ -24,8 +24,6 @@
 #![deny(missing_docs)]
 #![no_std]
 
-// Test to see if changelog CI fails
-
 use core::{fmt::Debug, slice::IterMut};
 
 use esp_hal::{

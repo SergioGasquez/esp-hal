@@ -36,3 +36,4 @@ pub(crate) fn esp_rom_spiflash_write(dest_addr: u32, data: *const u32, len: u32)
         esp_rom_spiflash_write(dest_addr, data, len)
     })
 }
+// Test to see if changelog CI fails
