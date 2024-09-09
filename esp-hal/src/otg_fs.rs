@@ -47,16 +47,20 @@ use crate::{
 };
 
 #[doc(hidden)]
+/// Trait representing the USB D+ (data plus) pin.
 pub trait UsbDp: crate::private::Sealed {}
 
 #[doc(hidden)]
+/// Trait representing the USB D- (data minus) pin.
 pub trait UsbDm: crate::private::Sealed {}
 
+/// USB peripheral.
 pub struct Usb<'d> {
     _usb0: PeripheralRef<'d, peripherals::USB0>,
 }
 
 impl<'d> Usb<'d> {
+    /// Creates a new `Usb` instance.
     pub fn new<P, M>(
         usb0: impl Peripheral<P = peripherals::USB0> + 'd,
         _usb_dp: impl Peripheral<P = P> + 'd,
@@ -66,6 +70,7 @@ impl<'d> Usb<'d> {
         P: UsbDp + Send + Sync,
         M: UsbDm + Send + Sync,
     {
+        PeripheralClockControl::reset(PeripheralEnable::Usb);
         PeripheralClockControl::enable(PeripheralEnable::Usb);
 
         Self {
@@ -126,8 +131,7 @@ unsafe impl<'d> UsbPeripheral for Usb<'d> {
         80_000_000
     }
 }
-
-#[cfg(feature = "async")]
+/// Async functionality
 pub mod asynch {
     use embassy_usb_driver::{
         EndpointAddress,

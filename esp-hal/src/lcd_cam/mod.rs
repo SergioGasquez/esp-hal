@@ -19,15 +19,20 @@ use crate::{
     InterruptConfigurable,
 };
 
+/// Represents a combined LCD and Camera interface.
 pub struct LcdCam<'d, DM: crate::Mode> {
+    /// The LCD interface.
     pub lcd: Lcd<'d, DM>,
+    /// The Camera interface.
     pub cam: Cam<'d>,
 }
 
 impl<'d> LcdCam<'d, crate::Blocking> {
+    /// Creates a new `LcdCam` instance.
     pub fn new(lcd_cam: impl Peripheral<P = LCD_CAM> + 'd) -> Self {
         crate::into_ref!(lcd_cam);
 
+        PeripheralClockControl::reset(system::Peripheral::LcdCam);
         PeripheralClockControl::enable(system::Peripheral::LcdCam);
 
         Self {
@@ -58,8 +63,8 @@ impl<'d> InterruptConfigurable for LcdCam<'d, crate::Blocking> {
     }
 }
 
-#[cfg(feature = "async")]
 impl<'d> LcdCam<'d, crate::Async> {
+    /// Creates a new `LcdCam` instance for asynchronous operation.
     pub fn new_async(lcd_cam: impl Peripheral<P = LCD_CAM> + 'd) -> Self {
         crate::into_ref!(lcd_cam);
 
@@ -112,7 +117,6 @@ pub enum ByteOrder {
 }
 
 #[doc(hidden)]
-#[cfg(feature = "async")]
 pub mod asynch {
     use core::task::Poll;
 
@@ -123,6 +127,7 @@ pub mod asynch {
 
     static TX_WAKER: AtomicWaker = AtomicWaker::new();
 
+    #[must_use = "futures do nothing unless you `.await` or poll them"]
     pub(crate) struct LcdDoneFuture {}
 
     impl LcdDoneFuture {
@@ -166,13 +171,11 @@ pub mod asynch {
 }
 
 mod private {
-    #[cfg(feature = "async")]
     pub(crate) struct Instance;
 
     // NOTE: the LCD_CAM interrupt registers are shared between LCD and Camera and
     // this is only implemented for the LCD side, when the Camera is implemented a
     // CriticalSection will be needed to protect these shared registers.
-    #[cfg(feature = "async")]
     impl Instance {
         pub(crate) fn listen_lcd_done() {
             let lcd_cam = unsafe { crate::peripherals::LCD_CAM::steal() };

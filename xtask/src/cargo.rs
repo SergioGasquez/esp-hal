@@ -9,7 +9,7 @@ use anyhow::{bail, Result};
 
 use crate::windows_safe_path;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CargoAction {
     Build,
     Run,
@@ -106,6 +106,14 @@ impl CargoArgsBuilder {
 
     #[must_use]
     pub fn arg<S>(mut self, arg: S) -> Self
+    where
+        S: Into<String>,
+    {
+        self.args.push(arg.into());
+        self
+    }
+
+    pub fn add_arg<S>(&mut self, arg: S) -> &mut Self
     where
         S: Into<String>,
     {

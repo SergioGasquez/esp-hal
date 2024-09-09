@@ -1,18 +1,15 @@
 use core::cell::RefCell;
 
 use critical_section::Mutex;
-use esp_hal::{
-    interrupt::InterruptHandler,
-    timer::{ErasedTimer, PeriodicTimer},
-};
+use esp_hal::interrupt::InterruptHandler;
 
 use crate::{
     hal::{interrupt, trapframe::TrapFrame, xtensa_lx, xtensa_lx_rt},
-    preempt::preempt::task_switch,
+    preempt::task_switch,
+    TimeBase,
 };
 
 /// The timer responsible for time slicing.
-pub type TimeBase = PeriodicTimer<'static, ErasedTimer>;
 static TIMER1: Mutex<RefCell<Option<TimeBase>>> = Mutex::new(RefCell::new(None));
 const TIMESLICE_FREQUENCY: fugit::HertzU64 =
     fugit::HertzU64::from_raw(crate::CONFIG.tick_rate_hz as u64);
@@ -23,7 +20,7 @@ pub const TICKS_PER_SECOND: u64 = 1_000_000;
 /// This function must not be called in a critical section. Doing so may return
 /// an incorrect value.
 pub fn get_systimer_count() -> u64 {
-    esp_hal::time::current_time().ticks()
+    esp_hal::time::now().ticks()
 }
 
 pub fn setup_timer(mut timer1: TimeBase) -> Result<(), esp_hal::timer::Error> {

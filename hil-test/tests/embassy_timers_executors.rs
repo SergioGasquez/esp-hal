@@ -1,47 +1,30 @@
 //! Embassy timer and executor Test
-//!
-//! Description of implemented tests:
-//! - run_test_one_shot_timg(): Tests Timg configured as OneShotTimer
-//! - run_test_periodic_timg(): Tests Timg configured as PeriodicTimer
-//! - run_test_one_shot_systimer(): Tests systimer configured as OneShotTimer
-//! - run_test_periodic_systimer(): Tests systimer configured as PeriodicTimer
-//! - run_test_periodic_oneshot_timg(): Tests Timg configured as PeriodicTimer
-//!   and then reconfigured as OneShotTimer
-//! - run_test_periodic_oneshot_systimer(): Tests systimer configured as
-//!   PeriodicTimer and then reconfigured as OneShotTimer
-//! - run_test_join_timg(): Tests Timg configured as OneShotTimer and wait on
-//!   two different timeouts via join
-//! - run_test_join_systimer(): Tests systimer configured as OneShotTimer and
-//!   wait on two different timeouts via join
-//! - run_test_interrupt_executor(): Tests InterruptExecutor and Thread
-//!   (default) executor in parallel
-//! - run_tick_test_timg(): Tests Timg configured as OneShotTimer if it fires
-//!   immediately in the case of the time scheduling was already in the past
-//!   (timestamp being too big)
 
-// esp32c2 is disabled currently as it fails
-//% CHIPS: esp32 esp32c3 esp32c6 esp32h2 esp32s3
+//% CHIPS: esp32 esp32c2 esp32c3 esp32c6 esp32h2 esp32s2 esp32s3
+//% FEATURES: integrated-timers
+//% FEATURES: generic-queue
 
 #![no_std]
 #![no_main]
 
-use defmt_rtt as _;
 use embassy_time::{Duration, Ticker, Timer};
-use esp_backtrace as _;
+#[cfg(not(feature = "esp32"))]
 use esp_hal::{
-    clock::ClockControl,
+    interrupt::software::SoftwareInterruptControl,
+    interrupt::Priority,
+    timer::systimer::{Alarm, FrozenUnit, Periodic, SystemTimer, Target},
+    timer::ErasedTimer,
+};
+use esp_hal::{
     peripherals::Peripherals,
     prelude::*,
-    system::SystemControl,
-    timer::{timg::TimerGroup, ErasedTimer, OneShotTimer, PeriodicTimer},
+    timer::{timg::TimerGroup, OneShotTimer, PeriodicTimer},
 };
 #[cfg(not(feature = "esp32"))]
-use esp_hal::{interrupt::Priority, timer::systimer::SystemTimer};
-#[cfg(not(feature = "esp32"))]
 use esp_hal_embassy::InterruptExecutor;
-#[cfg(not(feature = "esp32"))]
-use static_cell::StaticCell;
+use hil_test as _;
 
+#[cfg(not(feature = "esp32"))]
 macro_rules! mk_static {
     ($t:ty,$val:expr) => {{
         static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
@@ -51,444 +34,261 @@ macro_rules! mk_static {
     }};
 }
 
-unsafe fn __make_static<T>(t: &mut T) -> &'static mut T {
-    ::core::mem::transmute(t)
-}
-
-// we need to tell the test framework somehow, if the async test passed or
-// failed, this mod is the list of functions that are spawned as an actual tests
-mod task_invokers {
-    use test_helpers::*;
-
-    use crate::*;
-    #[embassy_executor::task]
-    pub async fn test_one_shot_timg_invoker() {
-        let outcome;
-        {
-            outcome = test_helpers::test_one_shot_timg().await;
-        }
-        embedded_test::export::check_outcome(outcome);
-    }
-
-    #[embassy_executor::task]
-    #[cfg(not(feature = "esp32"))]
-    pub async fn test_one_shot_systimer_invoker() {
-        let outcome;
-        {
-            outcome = task_invokers::test_one_shot_systimer().await;
-        }
-        embedded_test::export::check_outcome(outcome);
-    }
-
-    #[embassy_executor::task]
-    pub async fn test_join_timg_invoker() {
-        let outcome;
-        {
-            outcome = test_join_timg().await;
-        }
-        embedded_test::export::check_outcome(outcome);
-    }
-
-    #[embassy_executor::task]
-    #[cfg(not(feature = "esp32"))]
-    pub async fn test_join_systimer_invoker() {
-        let outcome;
-        {
-            outcome = test_join_systimer().await;
-        }
-        embedded_test::export::check_outcome(outcome);
-    }
-
-    #[embassy_executor::task]
-    #[cfg(not(feature = "esp32"))]
-    pub async fn test_interrupt_executor_invoker() {
-        let outcome;
-        {
-            outcome = test_interrupt_executor().await;
-        }
-        embedded_test::export::check_outcome(outcome);
-    }
-
-    #[embassy_executor::task]
-    pub async fn test_tick_and_increment_invoker() {
-        let outcome;
-        {
-            outcome = tick_and_increment().await;
-        }
-        embedded_test::export::check_outcome(outcome);
-    }
-}
-
 // List of the functions that are ACTUALLY TESTS but are called in the invokers
 mod test_helpers {
-    use crate::*;
-    pub async fn test_one_shot_timg() {
-        let peripherals = unsafe { Peripherals::steal() };
-        let system = SystemControl::new(peripherals.SYSTEM);
-        let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
-
-        let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks);
-        let timer0: ErasedTimer = timg0.timer0.into();
-        let timers = [OneShotTimer::new(timer0)];
-        let timers = mk_static!([OneShotTimer<ErasedTimer>; 1], timers);
-        esp_hal_embassy::init(&clocks, timers);
-
-        let t1 = esp_hal::time::current_time();
-        Timer::after_millis(500).await;
-        task300ms().await;
-        let t2 = esp_hal::time::current_time();
-
-        assert!(t2 > t1);
-        assert!((t2 - t1).to_millis() >= 500u64);
-    }
-
-    #[cfg(not(feature = "esp32"))]
-    pub async fn test_one_shot_systimer() {
-        let peripherals = unsafe { Peripherals::steal() };
-        let system = SystemControl::new(peripherals.SYSTEM);
-        let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
-
-        let systimer = SystemTimer::new(peripherals.SYSTIMER);
-        let alarm0: ErasedTimer = systimer.alarm0.into();
-        let timers = [OneShotTimer::new(alarm0)];
-        let timers = mk_static!([OneShotTimer<ErasedTimer>; 1], timers);
-        esp_hal_embassy::init(&clocks, timers);
-
-        let t1 = esp_hal::time::current_time();
-        Timer::after_millis(500).await;
-        task300ms().await;
-        let t2 = esp_hal::time::current_time();
-
-        assert!(t2 > t1);
-        assert!((t2 - t1).to_millis() >= 500u64);
-    }
-
-    pub async fn test_join_timg() {
-        let peripherals = unsafe { Peripherals::steal() };
-        let system = SystemControl::new(peripherals.SYSTEM);
-        let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
-
-        let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks);
-        let timer0: ErasedTimer = timg0.timer0.into();
-        let timers = [OneShotTimer::new(timer0)];
-        let timers = mk_static!([OneShotTimer<ErasedTimer>; 1], timers);
-        esp_hal_embassy::init(&clocks, timers);
-
-        let t1 = esp_hal::time::current_time();
-        embassy_futures::join::join(task500ms(), task300ms()).await;
-        task500ms().await;
-        let t2 = esp_hal::time::current_time();
-
-        assert!(t2 > t1);
-        assert!((t2 - t1).to_millis() >= 1_000u64);
-    }
-
-    #[cfg(not(feature = "esp32"))]
-    pub async fn test_join_systimer() {
-        let peripherals = unsafe { Peripherals::steal() };
-        let system = SystemControl::new(peripherals.SYSTEM);
-        let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
-
-        let systimer = SystemTimer::new(peripherals.SYSTIMER);
-        let alarm0: ErasedTimer = systimer.alarm0.into();
-        let timers = [OneShotTimer::new(alarm0)];
-        let timers = mk_static!([OneShotTimer<ErasedTimer>; 1], timers);
-        esp_hal_embassy::init(&clocks, timers);
-
-        let t1 = esp_hal::time::current_time();
-        embassy_futures::join::join(task500ms(), task300ms()).await;
-        task500ms().await;
-        let t2 = esp_hal::time::current_time();
-
-        assert!(t2 > t1);
-        assert!((t2 - t1).to_millis() >= 1_000u64);
-    }
-
-    #[cfg(not(feature = "esp32"))]
-    pub async fn test_interrupt_executor() {
-        let mut ticker = Ticker::every(Duration::from_millis(300));
-
-        let t1 = esp_hal::time::current_time();
-        ticker.next().await;
-        ticker.next().await;
-        ticker.next().await;
-        let t2 = esp_hal::time::current_time();
-
-        assert!(t2 > t1);
-        assert!((t2 - t1).to_millis() >= 900u64);
-    }
-
-    pub async fn tick_and_increment() {
-        const HZ: u64 = 100_000u64;
-        let mut counter = 0;
-        let mut ticker = Ticker::every(Duration::from_hz(HZ));
-
-        let t1 = esp_hal::time::current_time();
-        let t2;
-
-        loop {
-            ticker.next().await;
-            counter += 1;
-
-            if counter > 100_000 {
-                t2 = esp_hal::time::current_time();
-                break;
-            }
-        }
-
-        assert!(t2 > t1);
-        assert!((t2 - t1).to_millis() >= 1000u64);
-        assert!((t2 - t1).to_millis() <= 1300u64);
-    }
+    use super::*;
 
     #[embassy_executor::task]
-    pub async fn tick() {
-        const HZ: u64 = 1000u64;
-        let mut ticker = Ticker::every(Duration::from_hz(HZ));
+    pub async fn e_task30ms() {
+        Timer::after_millis(30).await;
+    }
+}
 
-        loop {
-            ticker.next().await;
-        }
+mod test_cases {
+    use esp_hal::peripheral::Peripheral;
+
+    use super::*;
+
+    pub async fn run_test_one_shot_async() {
+        let t1 = esp_hal::time::now();
+        Timer::after_millis(50).await;
+        Timer::after_millis(30).await;
+        let t2 = esp_hal::time::now();
+
+        assert!(t2 > t1, "t2: {:?}, t1: {:?}", t2, t1);
+        assert!(
+            (t2 - t1).to_millis() >= 80u64,
+            "diff: {:?}",
+            (t2 - t1).to_millis()
+        );
     }
 
-    pub async fn task500ms() {
-        Timer::after_millis(500).await;
+    pub fn run_test_periodic_timer<T: esp_hal::timer::Timer>(timer: impl Peripheral<P = T>) {
+        let mut periodic = PeriodicTimer::new(timer);
+
+        let t1 = esp_hal::time::now();
+        periodic.start(100.millis()).unwrap();
+
+        nb::block!(periodic.wait()).unwrap();
+        let t2 = esp_hal::time::now();
+
+        assert!(t2 > t1, "t2: {:?}, t1: {:?}", t2, t1);
+        assert!(
+            (t2 - t1).to_millis() >= 100u64,
+            "diff: {:?}",
+            (t2 - t1).to_millis()
+        );
     }
 
-    pub async fn task300ms() {
-        Timer::after_millis(300).await;
+    pub fn run_test_oneshot_timer<T: esp_hal::timer::Timer>(timer: impl Peripheral<P = T>) {
+        let timer = OneShotTimer::new(timer);
+
+        let t1 = esp_hal::time::now();
+        timer.delay_millis(50);
+        let t2 = esp_hal::time::now();
+
+        assert!(t2 > t1, "t2: {:?}, t1: {:?}", t2, t1);
+        assert!(
+            (t2 - t1).to_millis() >= 50u64,
+            "diff: {:?}",
+            (t2 - t1).to_millis()
+        );
     }
 
-    #[embassy_executor::task]
-    pub async fn e_task300ms() {
-        task300ms().await;
+    pub async fn run_join_test() {
+        let t1 = esp_hal::time::now();
+        embassy_futures::join::join(Timer::after_millis(50), Timer::after_millis(30)).await;
+        Timer::after_millis(50).await;
+        let t2 = esp_hal::time::now();
+
+        assert!(t2 > t1, "t2: {:?}, t1: {:?}", t2, t1);
+        assert!(
+            (t2 - t1).to_millis() >= 100u64,
+            "diff: {:?}",
+            (t2 - t1).to_millis()
+        );
     }
+}
+
+fn set_up_embassy_with_timg0(peripherals: Peripherals) {
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+    esp_hal_embassy::init(timg0.timer0);
+}
+
+#[cfg(not(feature = "esp32"))]
+fn set_up_embassy_with_systimer(peripherals: Peripherals) {
+    let systimer = SystemTimer::new(peripherals.SYSTIMER).split::<Target>();
+    esp_hal_embassy::init(systimer.alarm0);
 }
 
 #[cfg(test)]
 #[embedded_test::tests(executor = esp_hal_embassy::Executor::new())]
 mod test {
     use super::*;
-    use crate::{task_invokers::*, test_helpers::*};
+    use crate::test_cases::*;
+    #[cfg(not(feature = "esp32"))]
+    use crate::test_helpers::*;
 
-    #[test]
-    #[timeout(3)]
-    fn run_test_one_shot_timg() {
-        let mut executor = esp_hal_embassy::Executor::new();
-        let executor = unsafe { __make_static(&mut executor) };
-        executor.run(|spawner| {
-            spawner.must_spawn(task_invokers::test_one_shot_timg_invoker());
-        });
+    #[init]
+    fn init() -> Peripherals {
+        esp_hal::init(esp_hal::Config::default())
     }
 
     #[test]
     #[timeout(3)]
-    fn run_test_periodic_timg() {
-        let peripherals = Peripherals::take();
-        let system = SystemControl::new(peripherals.SYSTEM);
-        let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
+    async fn test_one_shot_timg(peripherals: Peripherals) {
+        set_up_embassy_with_timg0(peripherals);
 
-        let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks);
-
-        let mut periodic = PeriodicTimer::new(timg0.timer0);
-
-        let t1 = esp_hal::time::current_time();
-        periodic.start(1.secs()).unwrap();
-
-        let t2;
-        loop {
-            nb::block!(periodic.wait()).unwrap();
-            t2 = esp_hal::time::current_time();
-            break;
-        }
-        assert!(t2 > t1);
-        assert!((t2 - t1).to_millis() >= 1_000u64);
+        run_test_one_shot_async().await;
     }
 
     #[test]
     #[timeout(3)]
     #[cfg(not(feature = "esp32"))]
-    fn run_test_one_shot_systimer() {
-        let mut executor = esp_hal_embassy::Executor::new();
-        let executor = unsafe { __make_static(&mut executor) };
-        executor.run(|spawner| {
-            spawner.must_spawn(test_one_shot_systimer_invoker());
-        });
+    async fn test_one_shot_systimer(peripherals: Peripherals) {
+        set_up_embassy_with_systimer(peripherals);
+
+        run_test_one_shot_async().await;
+    }
+
+    #[test]
+    #[timeout(3)]
+    fn test_periodic_timg(peripherals: Peripherals) {
+        let timg0 = TimerGroup::new(peripherals.TIMG0);
+
+        run_test_periodic_timer(timg0.timer0);
     }
 
     #[test]
     #[timeout(3)]
     #[cfg(not(feature = "esp32"))]
-    fn run_test_periodic_systimer() {
-        let peripherals = Peripherals::take();
+    fn test_periodic_systimer(peripherals: Peripherals) {
+        let systimer = SystemTimer::new(peripherals.SYSTIMER).split::<Periodic>();
 
-        let systimer = SystemTimer::new(peripherals.SYSTIMER);
-
-        let mut periodic = PeriodicTimer::new(systimer.alarm0);
-
-        let t1 = esp_hal::time::current_time();
-        periodic.start(1.secs()).unwrap();
-
-        let t2;
-        loop {
-            nb::block!(periodic.wait()).unwrap();
-            t2 = esp_hal::time::current_time();
-            break;
-        }
-        assert!(t2 > t1);
-        assert!((t2 - t1).to_millis() >= 1_000u64);
+        run_test_periodic_timer(systimer.alarm0);
     }
 
     #[test]
     #[timeout(3)]
-    fn run_test_periodic_oneshot_timg() {
-        let mut peripherals = Peripherals::take();
-        let system = SystemControl::new(peripherals.SYSTEM);
-        let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
+    fn test_periodic_oneshot_timg(mut peripherals: Peripherals) {
+        let mut timg0 = TimerGroup::new(&mut peripherals.TIMG0);
+        run_test_periodic_timer(&mut timg0.timer0);
 
-        let mut timg0 = TimerGroup::new(&mut peripherals.TIMG0, &clocks);
-
-        let mut periodic = PeriodicTimer::new(&mut timg0.timer0);
-
-        let t1 = esp_hal::time::current_time();
-        periodic.start(1.secs()).unwrap();
-
-        let t2;
-        loop {
-            nb::block!(periodic.wait()).unwrap();
-            t2 = esp_hal::time::current_time();
-            break;
-        }
-        assert!(t2 > t1);
-        assert!((t2 - t1).to_millis() >= 1_000u64);
-
-        core::mem::drop(periodic);
-
-        let timg0 = TimerGroup::new(&mut peripherals.TIMG0, &clocks);
-
-        let timer0 = OneShotTimer::new(timg0.timer0);
-
-        let t1 = esp_hal::time::current_time();
-        timer0.delay_millis(500);
-        let t2 = esp_hal::time::current_time();
-
-        assert!(t2 > t1);
-        assert!((t2 - t1).to_millis() >= 500u64);
+        let mut timg0 = TimerGroup::new(&mut peripherals.TIMG0);
+        run_test_oneshot_timer(&mut timg0.timer0);
     }
 
     #[test]
     #[timeout(3)]
     #[cfg(not(feature = "esp32"))]
-    fn run_test_periodic_oneshot_systimer() {
-        let mut peripherals = Peripherals::take();
+    fn test_periodic_oneshot_systimer(mut peripherals: Peripherals) {
+        let mut systimer = SystemTimer::new(&mut peripherals.SYSTIMER);
+        let unit = FrozenUnit::new(&mut systimer.unit0);
+        let mut alarm: Alarm<'_, Periodic, _, _, _> = Alarm::new(systimer.comparator0, &unit);
+        run_test_periodic_timer(&mut alarm);
 
         let mut systimer = SystemTimer::new(&mut peripherals.SYSTIMER);
-
-        let mut periodic = PeriodicTimer::new(&mut systimer.alarm0);
-
-        let t1 = esp_hal::time::current_time();
-        periodic.start(1.secs()).unwrap();
-
-        let t2;
-        loop {
-            nb::block!(periodic.wait()).unwrap();
-            t2 = esp_hal::time::current_time();
-            break;
-        }
-        assert!(t2 > t1);
-        assert!((t2 - t1).to_millis() >= 1_000u64);
-
-        core::mem::drop(periodic);
-
-        let systimer = SystemTimer::new(&mut peripherals.SYSTIMER);
-
-        let timer0 = OneShotTimer::new(systimer.alarm0);
-
-        let t1 = esp_hal::time::current_time();
-        timer0.delay_millis(500);
-        let t2 = esp_hal::time::current_time();
-
-        assert!(t2 > t1);
-        assert!((t2 - t1).to_millis() >= 500u64);
+        let unit = FrozenUnit::new(&mut systimer.unit0);
+        let mut alarm: Alarm<'_, Target, _, _, _> = Alarm::new(systimer.comparator0, &unit);
+        run_test_oneshot_timer(&mut alarm);
     }
 
     #[test]
     #[timeout(3)]
-    fn run_test_join_timg() {
-        let mut executor = esp_hal_embassy::Executor::new();
-        let executor = unsafe { __make_static(&mut executor) };
-        executor.run(|spawner| {
-            spawner.must_spawn(test_join_timg_invoker());
-        });
+    async fn test_join_timg(peripherals: Peripherals) {
+        set_up_embassy_with_timg0(peripherals);
+
+        run_join_test().await;
     }
 
     #[test]
     #[timeout(3)]
     #[cfg(not(feature = "esp32"))]
-    fn run_test_join_systimer() {
-        let mut executor = esp_hal_embassy::Executor::new();
-        let executor = unsafe { __make_static(&mut executor) };
-        executor.run(|spawner| {
-            spawner.must_spawn(test_join_systimer_invoker());
-        });
+    async fn test_join_systimer(peripherals: Peripherals) {
+        set_up_embassy_with_systimer(peripherals);
+
+        run_join_test().await;
     }
 
+    /// Test that the ticker works in tasks ran by the interrupt executors.
     #[test]
     #[timeout(3)]
     #[cfg(not(feature = "esp32"))]
-    async fn run_test_interrupt_executor() {
-        let spawner = embassy_executor::Spawner::for_current_executor().await;
-
-        let peripherals = Peripherals::take();
-        let system = SystemControl::new(peripherals.SYSTEM);
-        let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
-
-        let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks);
+    async fn test_interrupt_executor(peripherals: Peripherals) {
+        let timg0 = TimerGroup::new(peripherals.TIMG0);
         let timer0: ErasedTimer = timg0.timer0.into();
-        let timer0 = OneShotTimer::new(timer0);
 
-        let timer1 = {
-            let systimer = esp_hal::timer::systimer::SystemTimer::new(peripherals.SYSTIMER);
-            let alarm0: ErasedTimer = systimer.alarm0.into();
-            OneShotTimer::new(alarm0)
-        };
+        let systimer = SystemTimer::new(peripherals.SYSTIMER).split::<Target>();
+        let alarm0: ErasedTimer = systimer.alarm0.into();
 
-        let timers = [timer0, timer1];
-        let timers = mk_static!([OneShotTimer<ErasedTimer>; 2], timers);
-        esp_hal_embassy::init(&clocks, timers);
+        esp_hal_embassy::init([timer0, alarm0]);
 
-        static EXECUTOR: StaticCell<InterruptExecutor<2>> = StaticCell::new();
-        let executor =
-            InterruptExecutor::new(system.software_interrupt_control.software_interrupt2);
-        let executor = EXECUTOR.init(executor);
+        let sw_ints = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+
+        let executor = mk_static!(
+            InterruptExecutor<2>,
+            InterruptExecutor::new(sw_ints.software_interrupt2)
+        );
+
+        #[embassy_executor::task]
+        #[cfg(not(feature = "esp32"))]
+        async fn test_interrupt_executor_invoker() {
+            let outcome = async {
+                let mut ticker = Ticker::every(Duration::from_millis(30));
+
+                let t1 = esp_hal::time::now();
+                ticker.next().await;
+                ticker.next().await;
+                ticker.next().await;
+                let t2 = esp_hal::time::now();
+
+                assert!(t2 > t1, "t2: {:?}, t1: {:?}", t2, t1);
+                assert!(
+                    (t2 - t1).to_micros() >= 85000u64,
+                    "diff: {:?}",
+                    (t2 - t1).to_micros()
+                );
+            };
+
+            embedded_test::export::check_outcome(outcome.await);
+        }
 
         let spawner_int = executor.start(Priority::Priority3);
         spawner_int.must_spawn(test_interrupt_executor_invoker());
 
-        spawner.must_spawn(e_task300ms());
+        let spawner = embassy_executor::Spawner::for_current_executor().await;
+        spawner.must_spawn(e_task30ms());
 
-        // we need to delay so the e_task300ms() could be spawned
-        task500ms().await;
-
+        // The test ends once the interrupt executor's task has finished
         loop {}
     }
 
+    /// Test that timg0 and systimer don't have vastly different tick rates.
     #[test]
     #[timeout(3)]
-    async fn run_tick_test_timg() {
-        let spawner = embassy_executor::Spawner::for_current_executor().await;
+    async fn tick_test_timer_tick_rates(peripherals: Peripherals) {
+        set_up_embassy_with_timg0(peripherals);
 
-        let peripherals = unsafe { Peripherals::steal() };
-        let system = SystemControl::new(peripherals.SYSTEM);
-        let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
+        // We are retrying 5 times because probe-rs polling RTT may introduce some
+        // jitter.
+        for _ in 0..5 {
+            let t1 = esp_hal::time::now();
 
-        let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks);
-        let timer0: ErasedTimer = timg0.timer0.into();
-        let timers = [OneShotTimer::new(timer0)];
-        let timers = mk_static!([OneShotTimer<ErasedTimer>; 1], timers);
-        esp_hal_embassy::init(&clocks, timers);
+            let mut ticker = Ticker::every(Duration::from_hz(100_000));
+            for _ in 0..2000 {
+                ticker.next().await;
+            }
+            let t2 = esp_hal::time::now();
 
-        spawner.must_spawn(tick());
-        tick_and_increment().await;
+            assert!(t2 > t1, "t2: {:?}, t1: {:?}", t2, t1);
+            let duration = (t2 - t1).to_micros();
+
+            assert!(duration >= 19000, "diff: {:?}", (t2 - t1).to_micros());
+            if duration <= 21000 {
+                return;
+            }
+        }
+
+        assert!(false, "Test failed after 5 retries");
     }
 }

@@ -142,13 +142,18 @@ macro_rules! create_etm {
             /// Provides access to all the [EtmChannel]
             pub struct Etm<'d> {
                 _peripheral: PeripheralRef<'d, crate::peripherals::SOC_ETM>,
-                $(pub [< channel $num >]: EtmChannel<$num>,)+
+                $(
+                    /// An individual ETM channel, identified by its index number.
+                    pub [< channel $num >]: EtmChannel<$num>,
+                )+
             }
 
             impl<'d> Etm<'d> {
+                /// Creates a new `Etm` instance.
                 pub fn new(peripheral: impl Peripheral<P = crate::peripherals::SOC_ETM> + 'd) -> Self {
                     crate::into_ref!(peripheral);
 
+                    PeripheralClockControl::reset(crate::system::Peripheral::Etm);
                     PeripheralClockControl::enable(crate::system::Peripheral::Etm);
 
                     Self {

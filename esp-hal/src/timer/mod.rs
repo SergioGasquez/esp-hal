@@ -11,12 +11,14 @@
 )]
 #![cfg_attr(feature = "esp32", doc = "See the [timg] module for more information.")]
 //! ## Examples
+//!
 //! ### One-shot Timer
+//!
 //! ```rust, no_run
 #![doc = crate::before_snippet!()]
 //! # use esp_hal::timer::{OneShotTimer, PeriodicTimer, timg::TimerGroup};
-//! # use esp_hal::prelude::*;
-//! let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks);
+//! #
+//! let timg0 = TimerGroup::new(peripherals.TIMG0);
 //! let one_shot = OneShotTimer::new(timg0.timer0);
 //!
 //! one_shot.delay_millis(500);
@@ -27,8 +29,8 @@
 //! ```rust, no_run
 #![doc = crate::before_snippet!()]
 //! # use esp_hal::timer::{PeriodicTimer, timg::TimerGroup};
-//! # use esp_hal::prelude::*;
-//! let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks);
+//! #
+//! let timg0 = TimerGroup::new(peripherals.TIMG0);
 //! let mut periodic = PeriodicTimer::new(timg0.timer0);
 //!
 //! periodic.start(1.secs());
@@ -37,8 +39,6 @@
 //! }
 //! # }
 //! ```
-
-#![deny(missing_docs)]
 
 use fugit::{ExtU64, Instant, MicrosDurationU64};
 
@@ -212,7 +212,6 @@ where
     }
 }
 
-#[cfg(feature = "embedded-hal-02")]
 impl<'d, T, UXX> embedded_hal_02::blocking::delay::DelayMs<UXX> for OneShotTimer<'d, T>
 where
     T: Timer,
@@ -223,7 +222,6 @@ where
     }
 }
 
-#[cfg(feature = "embedded-hal-02")]
 impl<'d, T, UXX> embedded_hal_02::blocking::delay::DelayUs<UXX> for OneShotTimer<'d, T>
 where
     T: Timer,
@@ -234,7 +232,6 @@ where
     }
 }
 
-#[cfg(feature = "embedded-hal")]
 impl<'d, T> embedded_hal::delay::DelayNs for OneShotTimer<'d, T>
 where
     T: Timer,
@@ -329,7 +326,6 @@ where
     }
 }
 
-#[cfg(feature = "embedded-hal-02")]
 impl<'d, T> embedded_hal_02::timer::CountDown for PeriodicTimer<'d, T>
 where
     T: Timer,
@@ -348,7 +344,6 @@ where
     }
 }
 
-#[cfg(feature = "embedded-hal-02")]
 impl<'d, T> embedded_hal_02::timer::Cancel for PeriodicTimer<'d, T>
 where
     T: Timer,
@@ -360,33 +355,29 @@ where
     }
 }
 
-#[cfg(feature = "embedded-hal-02")]
 impl<'d, T> embedded_hal_02::timer::Periodic for PeriodicTimer<'d, T> where T: Timer {}
 
 /// A type-erased timer
 ///
 /// You can create an instance of this by just calling `.into()` on a timer.
-#[allow(missing_docs)]
 pub enum ErasedTimer {
+    /// Timer 0 of the TIMG0 peripheral in blocking mode.
     Timg0Timer0(timg::Timer<timg::Timer0<crate::peripherals::TIMG0>, Blocking>),
+    /// Timer 1 of the TIMG0 peripheral in blocking mode.
     #[cfg(timg_timer1)]
     Timg0Timer1(timg::Timer<timg::Timer1<crate::peripherals::TIMG0>, Blocking>),
+    /// Timer 0 of the TIMG1 peripheral in blocking mode.
     #[cfg(timg1)]
     Timg1Timer0(timg::Timer<timg::Timer0<crate::peripherals::TIMG1>, Blocking>),
+    /// Timer 1 of the TIMG1 peripheral in blocking mode.
     #[cfg(all(timg1, timg_timer1))]
     Timg1Timer1(timg::Timer<timg::Timer1<crate::peripherals::TIMG1>, Blocking>),
+    /// Systimer Alarm in periodic mode with blocking behavior.
     #[cfg(systimer)]
-    SystimerAlarm0Periodic(systimer::Alarm<systimer::Periodic, Blocking, 0>),
+    SystimerAlarmPeriodic(systimer::Alarm<'static, systimer::Periodic, Blocking>),
+    /// Systimer Target in periodic mode with blocking behavior.
     #[cfg(systimer)]
-    SystimerAlarm1Periodic(systimer::Alarm<systimer::Periodic, Blocking, 1>),
-    #[cfg(systimer)]
-    SystimerAlarm2Periodic(systimer::Alarm<systimer::Periodic, Blocking, 2>),
-    #[cfg(systimer)]
-    SystimerAlarm0Target(systimer::Alarm<systimer::Target, Blocking, 0>),
-    #[cfg(systimer)]
-    SystimerAlarm1Target(systimer::Alarm<systimer::Target, Blocking, 1>),
-    #[cfg(systimer)]
-    SystimerAlarm2Target(systimer::Alarm<systimer::Target, Blocking, 2>),
+    SystimerAlarmTarget(systimer::Alarm<'static, systimer::Target, Blocking>),
 }
 
 impl crate::private::Sealed for ErasedTimer {}
@@ -419,44 +410,16 @@ impl From<timg::Timer<timg::Timer1<crate::peripherals::TIMG1>, Blocking>> for Er
 }
 
 #[cfg(systimer)]
-impl From<systimer::Alarm<systimer::Periodic, Blocking, 0>> for ErasedTimer {
-    fn from(value: systimer::Alarm<systimer::Periodic, Blocking, 0>) -> Self {
-        Self::SystimerAlarm0Periodic(value)
+impl From<systimer::Alarm<'static, systimer::Periodic, Blocking>> for ErasedTimer {
+    fn from(value: systimer::Alarm<'static, systimer::Periodic, Blocking>) -> Self {
+        Self::SystimerAlarmPeriodic(value)
     }
 }
 
 #[cfg(systimer)]
-impl From<systimer::Alarm<systimer::Periodic, Blocking, 1>> for ErasedTimer {
-    fn from(value: systimer::Alarm<systimer::Periodic, Blocking, 1>) -> Self {
-        Self::SystimerAlarm1Periodic(value)
-    }
-}
-
-#[cfg(systimer)]
-impl From<systimer::Alarm<systimer::Periodic, Blocking, 2>> for ErasedTimer {
-    fn from(value: systimer::Alarm<systimer::Periodic, Blocking, 2>) -> Self {
-        Self::SystimerAlarm2Periodic(value)
-    }
-}
-
-#[cfg(systimer)]
-impl From<systimer::Alarm<systimer::Target, Blocking, 0>> for ErasedTimer {
-    fn from(value: systimer::Alarm<systimer::Target, Blocking, 0>) -> Self {
-        Self::SystimerAlarm0Target(value)
-    }
-}
-
-#[cfg(systimer)]
-impl From<systimer::Alarm<systimer::Target, Blocking, 1>> for ErasedTimer {
-    fn from(value: systimer::Alarm<systimer::Target, Blocking, 1>) -> Self {
-        Self::SystimerAlarm1Target(value)
-    }
-}
-
-#[cfg(systimer)]
-impl From<systimer::Alarm<systimer::Target, Blocking, 2>> for ErasedTimer {
-    fn from(value: systimer::Alarm<systimer::Target, Blocking, 2>) -> Self {
-        Self::SystimerAlarm2Target(value)
+impl From<systimer::Alarm<'static, systimer::Target, Blocking>> for ErasedTimer {
+    fn from(value: systimer::Alarm<'static, systimer::Target, Blocking>) -> Self {
+        Self::SystimerAlarmTarget(value)
     }
 }
 
@@ -475,17 +438,9 @@ impl Timer for ErasedTimer {
             #[cfg(all(timg1,timg_timer1))]
             ErasedTimer::Timg1Timer1(inner) => inner,
             #[cfg(systimer)]
-            ErasedTimer::SystimerAlarm0Periodic(inner) => inner,
+            ErasedTimer::SystimerAlarmPeriodic(inner) => inner,
             #[cfg(systimer)]
-            ErasedTimer::SystimerAlarm1Periodic(inner) => inner,
-            #[cfg(systimer)]
-            ErasedTimer::SystimerAlarm2Periodic(inner) => inner,
-            #[cfg(systimer)]
-            ErasedTimer::SystimerAlarm0Target(inner) => inner,
-            #[cfg(systimer)]
-            ErasedTimer::SystimerAlarm1Target(inner) => inner,
-            #[cfg(systimer)]
-            ErasedTimer::SystimerAlarm2Target(inner) => inner,
+            ErasedTimer::SystimerAlarmTarget(inner) => inner,
         } {
             fn start(&self);
             fn stop(&self);

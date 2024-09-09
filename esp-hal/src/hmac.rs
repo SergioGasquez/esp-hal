@@ -43,6 +43,9 @@ use crate::{
     system::{Peripheral as PeripheralEnable, PeripheralClockControl},
 };
 
+/// Provides an interface for interacting with the HMAC hardware peripheral.
+/// It allows users to compute HMACs for cryptographic purposes, ensuring data
+/// integrity and authenticity.
 pub struct Hmac<'d> {
     hmac: PeripheralRef<'d, HMAC>,
     alignment_helper: AlignmentHelper<SocDependentEndianess>,
@@ -77,12 +80,19 @@ pub enum HmacPurpose {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Represents the key identifiers for the HMAC peripheral.
 pub enum KeyId {
+    /// Key 0.
     Key0 = 0,
+    /// Key 1.
     Key1 = 1,
+    /// Key 2.
     Key2 = 2,
+    /// Key 3.
     Key3 = 3,
+    /// Key 4.
     Key4 = 4,
+    /// Key 5.
     Key5 = 5,
 }
 
@@ -93,10 +103,11 @@ enum NextCommand {
 }
 
 impl<'d> Hmac<'d> {
+    /// Creates a new instance of the HMAC peripheral.
     pub fn new(hmac: impl Peripheral<P = HMAC> + 'd) -> Self {
         crate::into_ref!(hmac);
 
-        PeripheralClockControl::enable(PeripheralEnable::Sha);
+        PeripheralClockControl::reset(PeripheralEnable::Hmac);
         PeripheralClockControl::enable(PeripheralEnable::Hmac);
 
         Self {
@@ -105,10 +116,6 @@ impl<'d> Hmac<'d> {
             byte_written: 64,
             next_command: NextCommand::None,
         }
-    }
-
-    pub fn free(self) -> PeripheralRef<'d, HMAC> {
-        self.hmac
     }
 
     /// Step 1. Enable HMAC module.
@@ -157,6 +164,7 @@ impl<'d> Hmac<'d> {
         Ok(remaining)
     }
 
+    /// Finalizes the HMAC computation and retrieves the resulting hash output.
     pub fn finalize(&mut self, output: &mut [u8]) -> nb::Result<(), Infallible> {
         if self.is_busy() {
             return Err(nb::Error::WouldBlock);

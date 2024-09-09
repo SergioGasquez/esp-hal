@@ -4,7 +4,7 @@
 //! - offers one service with three characteristics (one is read/write, one is write only, one is read/write/notify)
 //! - pressing the boot-button on a dev-board will send a notification if it is subscribed
 
-//% FEATURES: async embassy embassy-generic-timers esp-wifi esp-wifi/async esp-wifi/ble
+//% FEATURES: embassy embassy-generic-timers esp-wifi esp-wifi/async esp-wifi/ble
 //% CHIPS: esp32 esp32s3 esp32c2 esp32c3 esp32c6 esp32h2
 
 #![no_std]
@@ -25,77 +25,56 @@ use bleps::{
     gatt,
 };
 use embassy_executor::Spawner;
+use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::ClockControl,
     gpio::{Input, Io, Pull},
-    peripherals::*,
+    prelude::*,
     rng::Rng,
-    system::SystemControl,
-    timer::{timg::TimerGroup, ErasedTimer, OneShotTimer, PeriodicTimer},
+    timer::timg::TimerGroup,
 };
 use esp_println::println;
 use esp_wifi::{ble::controller::asynch::BleConnector, initialize, EspWifiInitFor};
 
-// When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
-macro_rules! mk_static {
-    ($t:ty,$val:expr) => {{
-        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
-        #[deny(unused_attributes)]
-        let x = STATIC_CELL.uninit().write(($val));
-        x
-    }};
-}
-
 #[esp_hal_embassy::main]
 async fn main(_spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
+    let peripherals = esp_hal::init({
+        let mut config = esp_hal::Config::default();
+        config.cpu_clock = CpuClock::max();
+        config
+    });
 
-    let peripherals = Peripherals::take();
+    esp_alloc::heap_allocator!(72 * 1024);
 
-    let system = SystemControl::new(peripherals.SYSTEM);
-    let clocks = ClockControl::max(system.clock_control).freeze();
-
-    let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks);
-    let timer0: ErasedTimer = timg0.timer0.into();
-    let timer = PeriodicTimer::new(timer0);
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
 
     let init = initialize(
         EspWifiInitFor::Ble,
-        timer,
+        timg0.timer0,
         Rng::new(peripherals.RNG),
         peripherals.RADIO_CLK,
-        &clocks,
     )
     .unwrap();
 
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
-    #[cfg(any(feature = "esp32", feature = "esp32s2", feature = "esp32s3"))]
-    let button = Input::new(io.pins.gpio0, Pull::Down);
-    #[cfg(any(
-        feature = "esp32c2",
-        feature = "esp32c3",
-        feature = "esp32c6",
-        feature = "esp32h2"
-    ))]
-    let button = Input::new(io.pins.gpio9, Pull::Down);
-
-    #[cfg(feature = "esp32")]
-    {
-        let timg1 = TimerGroup::new(peripherals.TIMG1, &clocks);
-        let timer0: ErasedTimer = timg1.timer0.into();
-        let timers = [OneShotTimer::new(timer0)];
-        let timers = mk_static!([OneShotTimer<ErasedTimer>; 1], timers);
-        esp_hal_embassy::init(&clocks, timers);
+    cfg_if::cfg_if! {
+        if #[cfg(any(feature = "esp32", feature = "esp32s2", feature = "esp32s3"))] {
+            let button = Input::new(io.pins.gpio0, Pull::Down);
+        } else {
+            let button = Input::new(io.pins.gpio9, Pull::Down);
+        }
     }
 
-    #[cfg(not(feature = "esp32"))]
-    {
-        let systimer = esp_hal::timer::systimer::SystemTimer::new(peripherals.SYSTIMER);
-        let alarm0: ErasedTimer = systimer.alarm0.into();
-        let timers = [OneShotTimer::new(alarm0)];
-        let timers = mk_static!([OneShotTimer<ErasedTimer>; 1], timers);
-        esp_hal_embassy::init(&clocks, timers);
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "esp32")] {
+            let timg1 = TimerGroup::new(peripherals.TIMG1);
+            esp_hal_embassy::init(timg1.timer0);
+        } else {
+            use esp_hal::timer::systimer::{SystemTimer, Target};
+            let systimer = SystemTimer::new(peripherals.SYSTIMER).split::<Target>();
+            esp_hal_embassy::init(systimer.alarm0);
+        }
     }
 
     let mut bluetooth = peripherals.BT;

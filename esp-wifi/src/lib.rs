@@ -1,25 +1,39 @@
+//! # Features flags
+//!
+//! Note that not all features are available on every MCU. For example, `ble`
+//! (and thus, `coex`) is not available on ESP32-S2.
+//!
+//! When using the `dump-packets` feature you can use the extcap in
+//! `extras/esp-wifishark` to analyze the frames in Wireshark.
+//! For more information see
+//! [extras/esp-wifishark/README.md](../extras/esp-wifishark/README.md)
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
+#![doc = include_str!("../README.md")]
+#![doc(html_logo_url = "https://avatars.githubusercontent.com/u/46717278")]
 #![no_std]
 #![cfg_attr(target_arch = "xtensa", feature(asm_experimental_arch))]
 #![cfg_attr(any(feature = "wifi-logs", nightly), feature(c_variadic))]
-#![doc = include_str!("../README.md")]
-#![doc(html_logo_url = "https://avatars.githubusercontent.com/u/46717278")]
 #![allow(rustdoc::bare_urls)]
 // allow until num-derive doesn't generate this warning anymore (unknown_lints because Xtensa
 // toolchain doesn't know about that lint, yet)
 #![allow(unknown_lints)]
 #![allow(non_local_definitions)]
 
+extern crate alloc;
+
 // MUST be the first module
 mod fmt;
 
-use core::{cell::RefCell, mem::MaybeUninit, ptr::addr_of_mut};
-
 use common_adapter::{chip_specific::phy_mem_init, init_radio_clock_control, RADIO_CLOCKS};
-use critical_section::Mutex;
 use esp_hal as hal;
+#[cfg(not(feature = "esp32"))]
+use esp_hal::timer::systimer::Alarm;
 use fugit::MegahertzU32;
-use hal::{clock::Clocks, system::RadioClockController};
-use linked_list_allocator::Heap;
+use hal::{
+    clock::Clocks,
+    system::RadioClockController,
+    timer::{timg::Timer as TimgTimer, ErasedTimer, PeriodicTimer},
+};
 #[cfg(feature = "wifi")]
 use wifi::WifiError;
 
@@ -100,8 +114,6 @@ struct Config {
     country_code_operating_class: u8,
     #[default(1492)]
     mtu: usize,
-    #[default(65536)]
-    heap_size: usize,
     #[default(DEFAULT_TICK_RATE_HZ)]
     tick_rate_hz: u32,
     #[default(3)]
@@ -128,21 +140,7 @@ const _: () = {
     core::assert!(CONFIG.rx_ba_win < (CONFIG.static_rx_buf_num * 2), "WiFi configuration check: rx_ba_win should not be larger than double of the static_rx_buf_num!");
 };
 
-const HEAP_SIZE: usize = crate::CONFIG.heap_size;
-
-#[cfg_attr(esp32, link_section = ".dram2_uninit")]
-static mut HEAP_DATA: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-
-pub(crate) static HEAP: Mutex<RefCell<Heap>> = Mutex::new(RefCell::new(Heap::empty()));
-
-fn init_heap() {
-    critical_section::with(|cs| {
-        HEAP.borrow_ref_mut(cs)
-            .init_from_slice(unsafe { &mut *addr_of_mut!(HEAP_DATA) as &mut [MaybeUninit<u8>] })
-    });
-}
-
-pub(crate) type EspWifiTimer = crate::timer::TimeBase;
+type TimeBase = PeriodicTimer<'static, ErasedTimer>;
 
 #[derive(Debug, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -215,16 +213,91 @@ impl EspWifiInitFor {
     }
 }
 
-/// Initialize for using WiFi and or BLE
+/// A trait to allow better UX for initializing esp-wifi.
+///
+/// This trait is meant to be used only for the `init` function.
+/// Calling `timers()` multiple times may panic.
+pub trait EspWifiTimerSource {
+    /// Returns the timer source.
+    fn timer(self) -> TimeBase;
+}
+
+/// Helper trait to reduce boilerplate.
+///
+/// We can't blanket-implement for `Into<ErasedTimer>` because of possible
+/// conflicting implementations.
+trait IntoErasedTimer: Into<ErasedTimer> {}
+
+impl<T, DM> IntoErasedTimer for TimgTimer<T, DM>
+where
+    DM: esp_hal::Mode,
+    Self: Into<ErasedTimer>,
+{
+}
+
+#[cfg(not(feature = "esp32"))]
+impl<T, DM, COMP, UNIT> IntoErasedTimer for Alarm<'_, T, DM, COMP, UNIT>
+where
+    DM: esp_hal::Mode,
+    Self: Into<ErasedTimer>,
+{
+}
+
+impl IntoErasedTimer for ErasedTimer {}
+
+impl<T> EspWifiTimerSource for T
+where
+    T: IntoErasedTimer,
+{
+    fn timer(self) -> TimeBase {
+        TimeBase::new(self.into()).timer()
+    }
+}
+
+impl EspWifiTimerSource for TimeBase {
+    fn timer(self) -> TimeBase {
+        self
+    }
+}
+
+/// Initialize for using WiFi and or BLE.
+///
+/// # The `timer` argument
+///
+/// The `timer` argument is a timer source that is used by the WiFi driver to
+/// schedule internal tasks. The timer source can be any of the following:
+///
+/// - A timg `Timer` instance
+/// - A systimer `Alarm` instance
+/// - An `ErasedTimer` instance
+/// - A `OneShotTimer` instance
+///
+/// # Examples
+///
+/// ```rust, no_run
+#[doc = esp_hal::before_snippet!()]
+/// use esp_hal::{rng::Rng, timg::TimerGroup};
+/// use esp_wifi::EspWifiInitFor;
+///
+/// let timg0 = TimerGroup::new(peripherals.TIMG0);
+/// let init = esp_wifi::initialize(
+///     EspWifiInitFor::Wifi,
+///     timg0.timer0,
+///     Rng::new(peripherals.RNG),
+///     peripherals.RADIO_CLK,
+/// )
+/// .unwrap();
+/// # }
+/// ```
 pub fn initialize(
     init_for: EspWifiInitFor,
-    timer: EspWifiTimer,
+    timer: impl EspWifiTimerSource,
     rng: hal::rng::Rng,
     radio_clocks: hal::peripherals::RADIO_CLK,
-    clocks: &Clocks,
 ) -> Result<EspWifiInitialization, InitializationError> {
     // A minimum clock of 80MHz is required to operate WiFi module.
     const MIN_CLOCK: u32 = 80;
+    let clocks = Clocks::get();
     if clocks.cpu_clock < MegahertzU32::MHz(MIN_CLOCK) {
         return Err(InitializationError::WrongClockConfig);
     }
@@ -233,12 +306,11 @@ pub fn initialize(
 
     crate::common_adapter::chip_specific::enable_wifi_power_domain();
 
-    init_heap();
     phy_mem_init();
     init_radio_clock_control(radio_clocks);
     init_rng(rng);
     init_tasks();
-    setup_timer_isr(timer)?;
+    setup_timer_isr(timer.timer())?;
     wifi_set_log_verbose();
     init_clocks();
 

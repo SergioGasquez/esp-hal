@@ -15,7 +15,7 @@
 //! - RX => GPIO2
 
 //% CHIPS: esp32c3 esp32c6 esp32s2 esp32s3
-//% FEATURES: async embassy embassy-generic-timers
+//% FEATURES: embassy embassy-generic-timers
 
 #![no_std]
 #![no_main]
@@ -25,28 +25,16 @@ use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
 use embedded_can::{Frame, Id};
 use esp_backtrace as _;
 use esp_hal::{
-    clock::ClockControl,
     gpio::Io,
     interrupt,
-    peripherals::{self, Peripherals, TWAI0},
-    system::SystemControl,
-    timer::{timg::TimerGroup, ErasedTimer, OneShotTimer},
-    twai::{self, EspTwaiFrame, TwaiRx, TwaiTx},
+    peripherals::{self, TWAI0},
+    timer::timg::TimerGroup,
+    twai::{self, EspTwaiFrame, TwaiMode, TwaiRx, TwaiTx},
 };
 use esp_println::println;
 use static_cell::StaticCell;
 
 type TwaiOutbox = Channel<NoopRawMutex, EspTwaiFrame, 16>;
-
-// When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
-macro_rules! mk_static {
-    ($t:ty,$val:expr) => {{
-        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
-        #[deny(unused_attributes)]
-        let x = STATIC_CELL.uninit().write(($val));
-        x
-    }};
-}
 
 #[embassy_executor::task]
 async fn receiver(
@@ -94,15 +82,10 @@ async fn transmitter(
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
-    let peripherals = Peripherals::take();
-    let system = SystemControl::new(peripherals.SYSTEM);
-    let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
+    let peripherals = esp_hal::init(esp_hal::Config::default());
 
-    let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks);
-    let timer0: ErasedTimer = timg0.timer0.into();
-    let timers = [OneShotTimer::new(timer0)];
-    let timers = mk_static!([OneShotTimer<ErasedTimer>; 1], timers);
-    esp_hal_embassy::init(&clocks, timers);
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+    esp_hal_embassy::init(timg0.timer0);
 
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
 
@@ -118,10 +101,10 @@ async fn main(spawner: Spawner) {
     // state that prevents transmission but allows configuration.
     let mut can_config = twai::TwaiConfiguration::new_async_no_transceiver(
         peripherals.TWAI0,
-        can_tx_pin,
         can_rx_pin,
-        &clocks,
+        can_tx_pin,
         CAN_BAUDRATE,
+        TwaiMode::Normal,
     );
 
     // Partially filter the incoming messages to reduce overhead of receiving
@@ -140,7 +123,7 @@ async fn main(spawner: Spawner) {
     let can = can_config.start();
 
     // Get separate transmit and receive halves of the peripheral.
-    let (tx, rx) = can.split();
+    let (rx, tx) = can.split();
 
     interrupt::enable(
         peripherals::Interrupt::TWAI0,

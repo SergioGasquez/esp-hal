@@ -1,49 +1,80 @@
 //! I2S Loopback Test (Async)
 //!
 //! It's assumed GPIO2 is connected to GPIO3
+//! (GPIO9 and GPIO10 for esp32s3)
 //!
 //! This test uses I2S TX to transmit known data to I2S RX (forced to slave mode
 //! with loopback mode enabled). It's using circular DMA mode
 
 //% CHIPS: esp32c3 esp32c6 esp32s3 esp32h2
+//% FEATURES: generic-queue
 
 #![no_std]
 #![no_main]
 
-use defmt_rtt as _;
-use esp_backtrace as _;
 use esp_hal::{
-    clock::ClockControl,
-    dma::{Dma, DmaChannel0, DmaPriority},
+    dma::{Dma, DmaPriority},
     gpio::Io,
-    i2s::{asynch::*, DataFormat, I2s, Standard},
+    i2s::{asynch::*, DataFormat, I2s, I2sTx, Standard},
     peripheral::Peripheral,
-    peripherals::Peripherals,
+    peripherals::I2S0,
     prelude::*,
-    system::SystemControl,
+    Async,
 };
+use hil_test as _;
 
-// choose values which DON'T restart on every descriptor buffer's start
-const ADD: u8 = 5;
-const CUT_OFF: u8 = 113;
+cfg_if::cfg_if! {
+    if #[cfg(any(
+        feature = "esp32",
+        feature = "esp32s2",
+    ))] {
+        use esp_hal::dma::Spi2DmaChannel as DmaChannel0;
+    } else {
+        use esp_hal::dma::DmaChannel0;
+    }
+}
+
+const BUFFER_SIZE: usize = 2000;
+
+#[derive(Clone)]
+struct SampleSource {
+    i: u8,
+}
+
+impl SampleSource {
+    // choose values which DON'T restart on every descriptor buffer's start
+    const ADD: u8 = 5;
+    const CUT_OFF: u8 = 113;
+
+    fn new() -> Self {
+        Self { i: 0 }
+    }
+}
+
+impl Iterator for SampleSource {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let i = self.i;
+        self.i = (i + Self::ADD) % Self::CUT_OFF;
+        Some(i)
+    }
+}
 
 #[embassy_executor::task]
-async fn writer(
-    i: u8,
-    mut transfer: I2sWriteDmaTransferAsync<
-        'static,
-        esp_hal::peripherals::I2S0,
-        DmaChannel0,
-        &'static mut [u8; 2000],
-    >,
-) {
-    let mut i = i;
+async fn writer(tx_buffer: &'static mut [u8], i2s_tx: I2sTx<'static, I2S0, DmaChannel0, Async>) {
+    let mut samples = SampleSource::new();
+    for b in tx_buffer.iter_mut() {
+        *b = samples.next().unwrap();
+    }
+
+    let mut tx_transfer = i2s_tx.write_dma_circular_async(tx_buffer).unwrap();
+
     loop {
-        transfer
+        tx_transfer
             .push_with(|buffer| {
                 for b in buffer.iter_mut() {
-                    *b = i;
-                    i = (i + ADD) % CUT_OFF;
+                    *b = samples.next().unwrap();
                 }
                 buffer.len()
             })
@@ -55,27 +86,33 @@ async fn writer(
 #[cfg(test)]
 #[embedded_test::tests(executor = esp_hal_embassy::Executor::new())]
 mod tests {
-    use super::*;
+    // defmt::* is load-bearing, it ensures that the assert in dma_buffers! is not
+    // using defmt's non-const assert. Doing so would result in a compile error.
+    #[allow(unused_imports)]
+    use defmt::{assert_eq, *};
 
-    #[init]
-    async fn init() {}
+    use super::*;
 
     #[test]
     async fn test_i2s_loopback() {
         let spawner = embassy_executor::Spawner::for_current_executor().await;
 
-        let peripherals = Peripherals::take();
-        let system = SystemControl::new(peripherals.SYSTEM);
-        let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
+        let peripherals = esp_hal::init(esp_hal::Config::default());
 
         let mut io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
 
         let dma = Dma::new(peripherals.DMA);
-        let dma_channel = dma.channel0;
 
-        #[allow(non_upper_case_globals)]
-        let (tx_buffer, tx_descriptors, rx_buffer, rx_descriptors) =
-            esp_hal::dma_circular_buffers!(2000, 2000);
+        cfg_if::cfg_if! {
+            if #[cfg(any(feature = "esp32", feature = "esp32s2"))] {
+                let dma_channel = dma.spi2channel;
+            } else {
+                let dma_channel = dma.channel0;
+            }
+        }
+
+        let (rx_buffer, rx_descriptors, tx_buffer, tx_descriptors) =
+            esp_hal::dma_circular_buffers!(BUFFER_SIZE, BUFFER_SIZE);
 
         let i2s = I2s::new(
             peripherals.I2S0,
@@ -83,23 +120,24 @@ mod tests {
             DataFormat::Data16Channel16,
             16000.Hz(),
             dma_channel.configure_for_async(false, DmaPriority::Priority0),
-            tx_descriptors,
             rx_descriptors,
-            &clocks,
+            tx_descriptors,
         );
+
+        let (dout, din) = hil_test::common_test_pins!(io);
 
         let i2s_tx = i2s
             .i2s_tx
             .with_bclk(unsafe { io.pins.gpio0.clone_unchecked() })
             .with_ws(unsafe { io.pins.gpio1.clone_unchecked() })
-            .with_dout(unsafe { io.pins.gpio2.clone_unchecked() })
+            .with_dout(dout)
             .build();
 
         let i2s_rx = i2s
             .i2s_rx
             .with_bclk(io.pins.gpio0)
             .with_ws(io.pins.gpio1)
-            .with_din(io.pins.gpio3)
+            .with_din(din)
             .build();
 
         // enable loopback testing
@@ -116,38 +154,23 @@ mod tests {
             i2s.rx_conf().modify(|_, w| w.rx_update().set_bit());
         }
 
-        let mut iteration = 0;
-        let mut failed = false;
-        let mut check_i: u8 = 0;
-        let mut i = 0;
-        for b in tx_buffer.iter_mut() {
-            *b = i;
-            i = (i + ADD) % CUT_OFF;
-        }
-
-        let mut rcv = [0u8; 2000];
-
         let mut rx_transfer = i2s_rx.read_dma_circular_async(rx_buffer).unwrap();
-        let tx_transfer = i2s_tx.write_dma_circular_async(tx_buffer).unwrap();
+        spawner.must_spawn(writer(tx_buffer, i2s_tx));
 
-        spawner.must_spawn(writer(i, tx_transfer));
-
-        'outer: loop {
+        let mut rcv = [0u8; BUFFER_SIZE];
+        let mut sample_idx = 0;
+        let mut samples = SampleSource::new();
+        for _ in 0..30 {
             let len = rx_transfer.pop(&mut rcv).await.unwrap();
             for &b in &rcv[..len] {
-                if b != check_i {
-                    failed = true;
-                    break 'outer;
-                }
-                check_i = (check_i + ADD) % CUT_OFF;
-            }
-            iteration += 1;
-
-            if iteration > 30 {
-                break;
+                let expected = samples.next().unwrap();
+                assert_eq!(
+                    b, expected,
+                    "Sample #{} does not match ({} != {})",
+                    sample_idx, b, expected
+                );
+                sample_idx += 1;
             }
         }
-
-        assert!(!failed);
     }
 }

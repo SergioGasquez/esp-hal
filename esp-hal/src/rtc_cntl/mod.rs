@@ -1,21 +1,23 @@
-//! # Real-Time Clock Control and Low-power Management (RTC_CNTL)
+//! # Real-Time Control and Low-power Management (RTC_CNTL)
 //!
 //! ## Overview
-//! The RTC_CNTL peripheral is responsible for managing the real-time clock and
-//! low-power modes on the chip.
+//!
+//! The RTC_CNTL peripheral is responsible for managing the low-power modes on
+//! the chip.
 //!
 //! ## Configuration
-//!  It also includes the necessary configurations and constants for clock
+//!
+//! It also includes the necessary configurations and constants for clock
 //! sources and low-power management. The driver provides the following features
 //! and functionalities:
+//!
 //!    * Clock Configuration
 //!    * Calibration
 //!    * Low-Power Management
-//!    * Real-Time Clock
 //!    * Handling Watchdog Timers
 //!
-//! ## Examples
-//! ### Print Time in Milliseconds From the RTC Timer
+//! ## Example
+//!
 //! ```rust, no_run
 #![doc = crate::before_snippet!()]
 //! # use core::cell::RefCell;
@@ -27,31 +29,26 @@
 //! # use crate::esp_hal::prelude::_fugit_ExtU64;
 //! # use crate::esp_hal::InterruptConfigurable;
 //! static RWDT: Mutex<RefCell<Option<Rwdt>>> = Mutex::new(RefCell::new(None));
-//! let mut delay = Delay::new(&clocks);
+//! let mut delay = Delay::new();
 //!
 //! let mut rtc = Rtc::new(peripherals.LPWR);
+//!
 //! rtc.set_interrupt_handler(interrupt_handler);
 //! rtc.rwdt.set_timeout(2000.millis());
 //! rtc.rwdt.listen();
 //!
 //! critical_section::with(|cs| RWDT.borrow_ref_mut(cs).replace(rtc.rwdt));
-//!
-//!
-//! loop {}
 //! # }
 //!
 //! // Where the `LP_WDT` interrupt handler is defined as:
-//! // Handle the corresponding interrupt
 //! # use core::cell::RefCell;
 //!
 //! # use critical_section::Mutex;
-//! # use esp_hal::prelude::handler;
-//! # use esp_hal::interrupt::InterruptHandler;
-//! # use esp_hal::interrupt;
-//! # use esp_hal::interrupt::Priority;
-//! # use crate::esp_hal::prelude::_fugit_ExtU64;
 //! # use esp_hal::rtc_cntl::Rwdt;
+//!
 //! static RWDT: Mutex<RefCell<Option<Rwdt>>> = Mutex::new(RefCell::new(None));
+//!
+//! // Handle the corresponding interrupt
 //! #[handler]
 //! fn interrupt_handler() {
 //!     critical_section::with(|cs| {
@@ -82,7 +79,7 @@ use crate::efuse::Efuse;
 use crate::peripherals::{LPWR, TIMG0};
 #[cfg(any(esp32c6, esp32h2))]
 use crate::peripherals::{LP_TIMER, LP_WDT};
-#[cfg(any(esp32, esp32s3, esp32c3, esp32c6))]
+#[cfg(any(esp32, esp32s3, esp32c3, esp32c6, esp32c2))]
 use crate::rtc_cntl::sleep::{RtcSleepConfig, WakeSource, WakeTriggers};
 use crate::{
     clock::Clock,
@@ -94,7 +91,7 @@ use crate::{
     InterruptConfigurable,
 };
 // only include sleep where its been implemented
-#[cfg(any(esp32, esp32s3, esp32c3, esp32c6))]
+#[cfg(any(esp32, esp32s3, esp32c3, esp32c6, esp32c2))]
 pub mod sleep;
 
 #[cfg_attr(esp32, path = "rtc/esp32.rs")]
@@ -184,8 +181,10 @@ pub(crate) enum RtcCalSel {
 /// Low-power Management
 pub struct Rtc<'d> {
     _inner: PeripheralRef<'d, crate::peripherals::LPWR>,
+    /// Reset Watchdog Timer.
     pub rwdt: Rwdt,
     #[cfg(any(esp32c2, esp32c3, esp32c6, esp32h2, esp32s3))]
+    /// Super Watchdog
     pub swd: Swd,
 }
 
@@ -204,7 +203,7 @@ impl<'d> Rtc<'d> {
             swd: Swd::new(),
         };
 
-        #[cfg(any(esp32, esp32s3, esp32c3, esp32c6))]
+        #[cfg(any(esp32, esp32s3, esp32c3, esp32c6, esp32c2))]
         RtcSleepConfig::base_settings(&this);
 
         this
@@ -265,7 +264,7 @@ impl<'d> Rtc<'d> {
     }
 
     /// Enter deep sleep and wake with the provided `wake_sources`.
-    #[cfg(any(esp32, esp32s3, esp32c3, esp32c6))]
+    #[cfg(any(esp32, esp32s3, esp32c3, esp32c6, esp32c2))]
     pub fn sleep_deep(&mut self, wake_sources: &[&dyn WakeSource]) -> ! {
         let config = RtcSleepConfig::deep();
         self.sleep(&config, wake_sources);
@@ -273,7 +272,7 @@ impl<'d> Rtc<'d> {
     }
 
     /// Enter light sleep and wake with the provided `wake_sources`.
-    #[cfg(any(esp32, esp32s3, esp32c3, esp32c6))]
+    #[cfg(any(esp32, esp32s3, esp32c3, esp32c6, esp32c2))]
     pub fn sleep_light(&mut self, wake_sources: &[&dyn WakeSource]) {
         let config = RtcSleepConfig::default();
         self.sleep(&config, wake_sources);
@@ -281,7 +280,7 @@ impl<'d> Rtc<'d> {
 
     /// Enter sleep with the provided `config` and wake with the provided
     /// `wake_sources`.
-    #[cfg(any(esp32, esp32s3, esp32c3, esp32c6))]
+    #[cfg(any(esp32, esp32s3, esp32c3, esp32c6, esp32c2))]
     pub fn sleep(&mut self, config: &RtcSleepConfig, wake_sources: &[&dyn WakeSource]) {
         let mut config = *config;
         let mut wakeup_triggers = WakeTriggers::default();
@@ -855,14 +854,12 @@ impl Rwdt {
     }
 }
 
-#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_02::watchdog::WatchdogDisable for Rwdt {
     fn disable(&mut self) {
         self.disable();
     }
 }
 
-#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_02::watchdog::WatchdogEnable for Rwdt {
     type Time = MicrosDurationU64;
 
@@ -874,7 +871,6 @@ impl embedded_hal_02::watchdog::WatchdogEnable for Rwdt {
     }
 }
 
-#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_02::watchdog::Watchdog for Rwdt {
     fn feed(&mut self) {
         self.feed();
@@ -936,10 +932,7 @@ impl Default for Swd {
     }
 }
 
-#[cfg(all(
-    any(esp32c2, esp32c3, esp32c6, esp32h2, esp32s3),
-    feature = "embedded-hal-02"
-))]
+#[cfg(any(esp32c2, esp32c3, esp32c6, esp32h2, esp32s3))]
 impl embedded_hal_02::watchdog::WatchdogDisable for Swd {
     fn disable(&mut self) {
         self.disable();

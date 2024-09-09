@@ -9,15 +9,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Implement `embedded_io::{ReadReady, WriteReady}` traits for `WifiStack` (#1882)
+- Added `have-strchr` feature to disable including `strchr` (#2096)
+
+### Changed
+- esp-wifi now allocates memory from the global allocator provided by `esp-alloc` (#2099)
+
+### Fixed
+
+### Removed
+
+## 0.9.1 - 2024-09-03
+
+### Added
 
 ### Changed
 
 ### Fixed
 
-- Increased NPL event queue size to prevent overflow (#1891)
+- Builds on stable, again (#2067)
 
 ### Removed
+
+## 0.9.0 - 2024-09-03
+
+### Added
+
+- Added support for WPA2-ENTERPRISE (#2004)
+
+### Changed
+
+### Fixed
+
+### Removed
+
+- Removed the `clocks` parameter from `esp_wifi::initialize` (#1999)
+
+## 0.8.0 - 2024-08-29
+
+### Added
+
+- Implement `embedded_io::{ReadReady, WriteReady}` traits for `WifiStack` (#1882)
+- Implement `queue_msg_waiting` on the os_adapter (#1925)
+- Added API for promiscuous mode (#1935)
+- Implement `bt_hci::transport::Transport` traits for BLE (#1933)
+
+### Changed
+
+- Changed `init` to accept timers of multiple types (#1957)
+
+### Fixed
+
+- Increased NPL event queue size to prevent overflow (#1891)
 
 ## 0.7.1 - 2024-07-17
 

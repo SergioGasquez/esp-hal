@@ -28,7 +28,7 @@ Minimum supported Rust compiler version: 1.72.0.0
 
 ### Importing
 
-Ensure that the right features are enabled for your chip. See [Examples] for more examples.
+Ensure that the right features are enabled for your chip. See [Examples](https://github.com/esp-rs/esp-hal/tree/main/examples#examples) for more examples.
 
 ```toml
 [dependencies.esp-wifi]
@@ -70,38 +70,6 @@ Within this crate, `CCOMPARE0` CPU timer is used for timing, ensure that in your
 When using USB-SERIAL-JTAG (for example by selecting `jtag-serial` in [`esp-println`](https://crates.io/crates/esp-println)) you have to activate the feature `phy-enable-usb`.
 
 Don't use this feature if you are _not_ using USB-SERIAL-JTAG as it might reduce WiFi performance.
-
-## Features
-
-| Feature        | Meaning                                                                                              |
-| -------------- | ---------------------------------------------------------------------------------------------------- |
-| wifi-logs      | logs the WiFi logs from the driver at log level `info` (needs a nightly-compiler)                    |
-| wifi-default   | A convenience feature to enable some reasonable defaults for wifi use.                               |
-| dump-packets   | dumps packet info at log level `info`                                                                |
-| smoltcp        | Provide implementations of `smoltcp` traits                                                          |
-| utils          | Provide utilities for smoltcp initialization. Adds `smoltcp` dependency                              |
-| ble            | Enable BLE support                                                                                   |
-| wifi           | Enable WiFi support                                                                                  |
-| esp-now        | Enable [esp-now](https://www.espressif.com/en/solutions/low-power-solutions/esp-now) support         |
-| coex           | Enable WiFi-BLE coexistence support                                                                  |
-| ipv4           | IPv4 support. Includes `utils` feature                                                               |
-| ipv6           | IPv6 support. Includes `utils` feature                                                               |
-| tcp            | TCP socket support. Includes `ipv4` feature                                                          |
-| udp            | UDP socket support. Includes `ipv4` feature                                                          |
-| igmp           | IGMP (multicast) support. Includes `ipv4` feature                                                    |
-| dns            | DNS support. Includes `udp` feature                                                                  |
-| dhcpv4         | DHCPv4 support, both creating sockets and autoconfiguring network settings. Includes `utils` feature |
-| phy-enable-usb | See [USB-SERIAL-JTAG](#usb-serial-jtag) above                                                        |
-| ps-min-modem   | Enable minimum modem sleep. Only affects STA mode                                                    |
-| ps-max-modem   | Enable maximum modem sleep. Only affects STA mode                                                    |
-| log            | Route log output to the `log` crate                                                                  |
-| defmt          | Add `defmt::Format` implementation and output logs via `defmt`                                       |
-| embedded-svc   | Implement the embedded-svc Wifi trait                                                                |
-
-Note that not all features are available on every MCU. For example, `ble` (and thus, `coex`) is not available on ESP32-S2.
-
-When using the `dump-packets` feature you can use the extcap in `extras/esp-wifishark` to analyze the frames in Wireshark.
-For more information see [extras/esp-wifishark/README.md](../extras/esp-wifishark/README.md)
 
 ## Tuning
 
