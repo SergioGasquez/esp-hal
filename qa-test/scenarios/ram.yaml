@@ -1,0 +1,7 @@
+name: Ram Test
+version: 1
+author: esp-rs
+
+steps:
+  - wait-serial: "IRAM function located at "
+  - wait-serial: "Restarting in"

@@ -1,0 +1,98 @@
+name: Simulate QA Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: "Owner and repository to test"
+        required: true
+        default: 'esp-rs/esp-hal'
+      branch:
+        description: "Branch, tag or SHA to checkout."
+        required: true
+        default: "main"
+
+# Cancel any currently running workflows from the same PR, branch, or
+# tag when a new workflow is triggered.
+#
+# https://stackoverflow.com/a/66336834
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+
+env:
+  CARGO_TERM_COLOR: always
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+jobs:
+  simulate-qa-tests:
+    name: QA | ${{ matrix.device.soc }} | ${{ matrix.qa-test }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [
+            # RISC-V devices:
+            { soc: "esp32c3", target: "riscv32imc-unknown-none-elf", board: "board-esp32-c3-devkitm-1" },
+            { soc: "esp32c6", target: "riscv32imac-unknown-none-elf", board: "board-esp32-c6-devkitc-1" },
+            { soc: "esp32h2", target: "riscv32imac-unknown-none-elf", board: "board-esp32-h2-devkitm-1" },
+            # Xtensa devices:
+            { soc: "esp32", target: "xtensa-esp32-none-elf", board: "board-esp32-devkit-c-v4" },
+            { soc: "esp32s2", target: "xtensa-esp32s2-none-elf", board: "board-esp32-s2-devkitm-1" },
+            { soc: "esp32s3", target: "xtensa-esp32s3-none-elf", board: "board-esp32-s3-devkitc-1" },
+          ]
+        qa-test: [embassy_executor_benchmark, ram]
+        exclude:
+          - device: { soc: "esp32", target: "xtensa-esp32-none-elf", board: "board-esp32-devkit-c-v4" }
+            qa-test: embassy_executor_benchmark
+          - device: { soc: "esp32", target: "xtensa-esp32-none-elf", board: "board-esp32-devkit-c-v4" }
+            qa-test: ram
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install the Rust toolchain for Xtensa devices:
+      - uses: esp-rs/xtensa-toolchain@v1.5
+        if: contains(fromJson('["esp32", "esp32s2", "esp32s3"]'), matrix.device.soc)
+        with:
+          ldproxy: false
+          version: 1.83.0.1
+      # Install the Rust stable toolchain for RISC-V devices:
+      - uses: dtolnay/rust-toolchain@v1
+        if: ${{ !contains(fromJson('["esp32", "esp32s2", "esp32s3"]'), matrix.device.soc) }}
+        with:
+          target: riscv32imc-unknown-none-elf,riscv32imac-unknown-none-elf
+          toolchain: stable
+          components: rust-src
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build qa-tests
+        run: cargo xtask build-examples qa-test ${{ matrix.device.soc }} ${{ matrix.qa-test }}
+
+      - name: Create wokwi.toml
+        run: echo -e "[wokwi]\nversion = 1\nfirmware = 'target/${{ matrix.device.target }}/release/${{ matrix.qa-test }}'\nelf = 'target/${{ matrix.device.target }}/release/${{ matrix.qa-test }}'" > qa-test/wokwi.toml
+
+      - name: Create diagram.json
+        run: |
+            echo '{
+                "version": 1,
+                "author": "esp-rs",
+                "editor": "wokwi",
+                "parts": [ { "type": "${{ matrix.device.board }}", "id": "esp", "top": 0, "left": 0, "attrs": {} } ],
+                "connections": [ [ "esp:TX", "$serialMonitor:RX", "", [] ], [ "esp:RX", "$serialMonitor:TX", "", [] ] ],
+                "dependencies": {}
+            }' > qa-test/diagram.json
+
+      - name: Run simulation
+        uses: wokwi/wokwi-ci-action@v1
+        with:
+          token: ${{ secrets.WOKWI_CLI_TOKEN }}
+          path: qa-test
+          timeout: 10000
+          scenario: scenarios/${{ matrix.qa-test }}.yaml
+          fail_text: 'Error'

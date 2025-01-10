@@ -1,0 +1,8 @@
+name: Embassy Executor Benchmark Test
+version: 1
+author: esp-rs
+
+steps:
+  - wait-serial: "Embassy initialized!"
+  - wait-serial: "Starting test"
+  - wait-serial: "Test OK, count="
