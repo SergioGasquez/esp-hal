@@ -87,7 +87,7 @@ jobs:
         if: ${{ !contains(github.event.pull_request.labels.*.name, 'breaking-change') }}
         # always invokes +esp internally
         run: |
-          cargo xcheck semver-check download-baselines
+          GITHUB_REPOSITORY="SergioGasquez/esp-hal" cargo xcheck semver-check download-baselines
           cargo xcheck semver-check --chips esp32 check
           cargo xcheck semver-check --chips esp32s2 check
           cargo xcheck semver-check --chips esp32s3 check
