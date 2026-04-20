@@ -13,9 +13,10 @@ name: CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [ opened, synchronize, reopened ]
   merge_group:
   workflow_dispatch:
+  push:
 
 env:
   CARGO_TERM_COLOR: always
@@ -48,7 +49,8 @@ jobs:
       STATIC_IP: 1.1.1.1
       GATEWAY_IP: 1.1.1.1
       HOST_IP: 1.1.1.1
-      SKIP_CI: ${{ contains(needs.get-labels.outputs.labels, 'skip-ci-non-code-change') }}
+      SKIP_CI: ${{ contains(needs.get-labels.outputs.labels,
+        'skip-ci-non-code-change') }}
 
     strategy:
       fail-fast: false
@@ -68,7 +70,7 @@ jobs:
         if: env.SKIP_CI != 'true'
 
       # Install the Rust toolchain for Xtensa devices:
-      - uses: esp-rs/xtensa-toolchain@v1.6
+      - uses: esp-rs/xtensa-toolchain@main
         if: env.SKIP_CI != 'true' && matrix.group == 'xtensa'
         with:
           version: 1.93.0.0
@@ -119,7 +121,7 @@ jobs:
       fallback-runner: ubuntu-latest
 
   extras:
-    needs: [get-labels, detect-extras-runner]
+    needs: [ get-labels, detect-extras-runner ]
     if: ${{ github.event_name != 'pull_request' ||
       !contains(needs.get-labels.outputs.labels, 'skip-ci-non-code-change') }}
     runs-on: ${{ needs.detect-extras-runner.outputs.selected-runner }}
@@ -133,7 +135,8 @@ jobs:
       # Install dependencies for building the extra crates on ubuntu
       - name: Install dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get -y install musl-tools libudev-dev pkg-config
+        run: sudo apt-get update && sudo apt-get -y install musl-tools libudev-dev
+          pkg-config
       # Build the extra crates
       - name: Build the bench-server
         run: cd extras/bench-server && cargo build
@@ -159,7 +162,7 @@ jobs:
       - uses: actions/checkout@v6
 
       # Install the Rust toolchain for Xtensa devices:
-      - uses: esp-rs/xtensa-toolchain@v1.6
+      - uses: esp-rs/xtensa-toolchain@main
         with:
           version: 1.88.0.0
 
@@ -184,7 +187,8 @@ jobs:
       - name: Build RISC-V docs
         if: matrix.group == 'riscv'
         shell: bash
-        run: cargo xtask build documentation --chips esp32c2,esp32c3,esp32c5,esp32c6,esp32c61,esp32h2
+        run: cargo xtask build documentation --chips
+          esp32c2,esp32c3,esp32c5,esp32c6,esp32c61,esp32h2
 
   # --------------------------------------------------------------------------
   # MSRV
@@ -193,7 +197,8 @@ jobs:
     needs: get-labels
     runs-on: ubuntu-latest
     env:
-      SKIP_CI: ${{ contains(needs.get-labels.outputs.labels, 'skip-ci-non-code-change') }}
+      SKIP_CI: ${{ contains(needs.get-labels.outputs.labels,
+        'skip-ci-non-code-change') }}
 
     strategy:
       fail-fast: false
@@ -211,7 +216,7 @@ jobs:
       - uses: actions/checkout@v6
         if: env.SKIP_CI != 'true'
 
-      - uses: esp-rs/xtensa-toolchain@v1.6
+      - uses: esp-rs/xtensa-toolchain@main
         if: env.SKIP_CI != 'true' && matrix.group == 'xtensa'
         with:
           version: ${{ env.MSRV }}
@@ -286,26 +291,10 @@ jobs:
         uses: bnjbvr/cargo-machete@main
         with:
           args: >
-            esp-alloc
-            esp-backtrace
-            esp-bootloader-esp-idf
-            esp-config
-            esp-hal
-            esp-hal-procmacros
-            esp-lp-hal
-            esp-metadata
-            esp-phy
-            esp-println
-            esp-radio
-            esp-radio-rtos-driver
-            esp-riscv-rt
-            esp-rom-sys
-            esp-rtos
-            esp-storage
-            esp-sync
-            examples
-            extras
-            xtask
+            esp-alloc esp-backtrace esp-bootloader-esp-idf esp-config esp-hal
+            esp-hal-procmacros esp-lp-hal esp-metadata esp-phy esp-println
+            esp-radio esp-radio-rtos-driver esp-riscv-rt esp-rom-sys esp-rtos
+            esp-storage esp-sync examples extras xtask
 
   # --------------------------------------------------------------------------
   # Check links in .rs, .md, and .toml files
@@ -320,18 +309,12 @@ jobs:
       - uses: lycheeverse/lychee-action@v2
         with:
           args: >
-            --verbose
-            --no-progress
-            --format detailed
-            --max-concurrency 4
-            --retry-wait-time 5
-            --max-retries 10
-            --accept "200,301,302"
-            --exclude-path ".*/target/.*|.*/static\.files/.*|.*/docs/.*"
-            --remap "https://github.com/${{ github.repository }}/(?:blob|tree)/[^/]+/(.+) file://$GITHUB_WORKSPACE/\$1"
-            './**/*.rs'
-            './**/*.md'
-            './**/*.toml'
+            --verbose --no-progress --format detailed --max-concurrency 4
+            --retry-wait-time 5 --max-retries 10 --accept "200,301,302"
+            --exclude-path ".*/target/.*|.*/static\.files/.*|.*/docs/.*" --remap
+            "https://github.com/${{ github.repository
+            }}/(?:blob|tree)/[^/]+/(.+) file://$GITHUB_WORKSPACE/\$1"
+            './**/*.rs' './**/*.md' './**/*.toml'
 
   # Single dummy for PR CI, per-chip matrix jobs live in hil.yml and are aggregated there.
   #

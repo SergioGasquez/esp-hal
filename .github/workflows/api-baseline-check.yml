@@ -2,7 +2,7 @@ name: API Baseline Check
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [ opened, synchronize, reopened, labeled, unlabeled ]
   merge_group:
 
 env:
@@ -25,9 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
-      SKIP_CI:
-        ${{ contains(needs.get-labels.outputs.labels, 'skip-ci-non-code-change')
-        || contains(needs.get-labels.outputs.labels, 'skip-semver-checks') }}
+      SKIP_CI: ${{ contains(needs.get-labels.outputs.labels,
+        'skip-ci-non-code-change') || contains(needs.get-labels.outputs.labels,
+        'skip-semver-checks') }}
 
     steps:
       - name: Skip CI
@@ -39,7 +39,7 @@ jobs:
         if: env.SKIP_CI != 'true'
 
       # Install the Rust toolchain for Xtensa devices:
-      - uses: esp-rs/xtensa-toolchain@v1.6
+      - uses: esp-rs/xtensa-toolchain@main
         if: env.SKIP_CI != 'true'
         with:
           version: 1.93.0.0

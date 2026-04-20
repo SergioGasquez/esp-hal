@@ -26,14 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: [
-          "esp32c2",
-          "esp32c3",
-          "esp32c5",
-          "esp32c6",
-          "esp32c61",
-          "esp32h2",
-        ]
+        device: [ "esp32c2", "esp32c3", "esp32c5", "esp32c6", "esp32c61", "esp32h2" ]
     steps:
       - uses: actions/checkout@v6
 
@@ -62,9 +55,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
         # Install the Rust toolchain for Xtensa devices:
-      - uses: esp-rs/xtensa-toolchain@v1.6
+      - uses: esp-rs/xtensa-toolchain@main
         with:
           version: 1.93.0.0
 
@@ -75,7 +67,7 @@ jobs:
   create-issue:
     name: Create GitHub Issue if any job failed
     runs-on: ubuntu-latest
-    needs: [esp-hal-nightly, check-global-symbols]
+    needs: [ esp-hal-nightly, check-global-symbols ]
     if: ${{ failure() }}
     steps:
       - uses: actions/checkout@v6

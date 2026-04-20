@@ -45,7 +45,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.inputs.tag_name || github.event.inputs.source_branch || 'main' }}
+          ref: ${{ github.event.inputs.tag_name || github.event.inputs.source_branch ||
+            'main' }}
           fetch-depth: 10
 
       - name: Set target repository
@@ -69,7 +70,7 @@ jobs:
           components: rust-src
 
       - name: Install xtensa toolchain
-        uses: esp-rs/xtensa-toolchain@v1.6
+        uses: esp-rs/xtensa-toolchain@main
         with:
           version: 1.93.0.0
 

@@ -2,15 +2,16 @@ name: Documentation
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [ opened, synchronize, reopened ]
   workflow_dispatch:
     inputs:
       packages:
         description: >
-          A JSON structure describing the packages to build.
-          E.g: [{"name":"esp-hal","tag":"v0.23.1"},{"name":"esp-radio","tag":"esp-radio-v0.12"}]
+          A JSON structure describing the packages to build. E.g:
+          [{"name":"esp-hal","tag":"v0.23.1"},{"name":"esp-radio","tag":"esp-radio-v0.12"}]
 
-          NOTE: You can run `cargo xtask release tag-releases` to get the json output generated for this workflow.
+          NOTE: You can run `cargo xtask release tag-releases` to get the json
+          output generated for this workflow.
 
           If you want to build all packages, leave this field empty.
         required: false
@@ -28,7 +29,9 @@ env:
 jobs:
   setup:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release-pr')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name ==
+      'pull_request' && contains(github.event.pull_request.labels.*.name,
+      'release-pr')) }}
     # required for this step, as stdout is captured by `hal-xtask release tag-releases`
     env:
       RUST_LOG: off
@@ -60,25 +63,30 @@ jobs:
 
       - id: setup_manual
         name: Set up [manual run with specific packages]
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.packages != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.packages
+          != '' }}
         run: |
           input='${{ github.event.inputs.packages }}'
           echo "packages=${input}" >> "$GITHUB_OUTPUT"
 
       - id: setup_pr
         name: Set up [pull request or all packages]
-        if: ${{ github.event_name == 'pull_request' || github.event.inputs.packages == '' }}
+        if: ${{ github.event_name == 'pull_request' || github.event.inputs.packages ==
+          '' }}
         # Release PRs will ignore the tag values and just check out the latest commit
         run: |
           output=$(hal-xtask release tag-releases)
           echo "packages=${output}" >> "$GITHUB_OUTPUT"
 
     outputs:
-      packages: "${{ steps.setup_manual.outputs.packages || steps.setup_pr.outputs.packages }}"
+      packages: "${{ steps.setup_manual.outputs.packages ||
+        steps.setup_pr.outputs.packages }}"
 
   build:
     needs: setup
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release-pr')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name ==
+      'pull_request' && contains(github.event.pull_request.labels.*.name,
+      'release-pr')) }}
     strategy:
       fail-fast: true
       matrix:
@@ -86,7 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: esp-rs/xtensa-toolchain@v1.6
+      - uses: esp-rs/xtensa-toolchain@main
         with:
           default: true
           version: 1.93.0.0
@@ -132,9 +140,11 @@ jobs:
           path: "docs/${{ matrix.packages.name }}"
 
   assemble:
-    needs: [setup, build]
+    needs: [ setup, build ]
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release-pr')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name ==
+      'pull_request' && contains(github.event.pull_request.labels.*.name,
+      'release-pr')) }}
 
     steps:
       # Check out the sources, the xtask reads package versions from the Cargo.toml files
@@ -152,7 +162,8 @@ jobs:
           docs/xtask/xtask build documentation-index
           rm -rf docs/xtask
 
-      - if: ${{ github.event.inputs.server == 'preview' || github.event_name == 'pull_request' }}
+      - if: ${{ github.event.inputs.server == 'preview' || github.event_name ==
+          'pull_request' }}
         name: Deploy to preview server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -165,7 +176,8 @@ jobs:
           overwrite: true
 
       # Deploying to production server is only allowed for manual runs
-      - if: ${{ github.event.inputs.server == 'production' && github.event_name == 'workflow_dispatch' }}
+      - if: ${{ github.event.inputs.server == 'production' && github.event_name ==
+          'workflow_dispatch' }}
         name: Deploy to production server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -178,7 +190,8 @@ jobs:
           overwrite: true
   docsrs:
     runs-on: ubuntu-latest
-    if: ${{ (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release-pr')) }}
+    if: ${{ (github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'release-pr')) }}
     steps:
       - uses: dtolnay/rust-toolchain@v1
         with:

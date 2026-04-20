@@ -53,7 +53,7 @@ runs:
         components: rust-src
 
     - if: ${{ contains(fromJson('["esp32","esp32s2","esp32s3"]'), inputs.soc) }}
-      uses: esp-rs/xtensa-toolchain@v1.6
+      uses: esp-rs/xtensa-toolchain@main
       with:
         buildtargets: ${{ inputs.soc }}
         default: true

@@ -17,7 +17,7 @@ on:
         default: ""
         type: string
       chips:
-        description: 'JSON array of chips to test, e.g. ["esp32c3","esp32c6"]'
+        description: "JSON array of chips to test, e.g. [\"esp32c3\",\"esp32c6\"]"
         required: true
         type: string
 
@@ -66,7 +66,7 @@ jobs:
       # Install the Rust toolchain for Xtensa devices:
       - name: Setup Rust (Xtensa)
         if: contains(fromJson('["esp32", "esp32s2", "esp32s3"]'), matrix.soc)
-        uses: esp-rs/xtensa-toolchain@v1.6
+        uses: esp-rs/xtensa-toolchain@main
         with:
           buildtargets: ${{ matrix.soc }}
           default: true
@@ -184,7 +184,9 @@ jobs:
         id: bloaty-qa
         uses: carlosperate/bloaty-action@v1
         with:
-          bloaty-args: -d sections --domain vm --source-filter "^.text$|^.data|^.bss|^.rwdata|^.rwtext" pr_qa_build_${{ matrix.soc }}.elf -- base_qa_build_${{ matrix.soc }}.elf
+          bloaty-args: -d sections --domain vm --source-filter
+            "^.text$|^.data|^.bss|^.rwdata|^.rwtext" pr_qa_build_${{ matrix.soc
+            }}.elf -- base_qa_build_${{ matrix.soc }}.elf
           output-to-summary: false
         continue-on-error: true
 

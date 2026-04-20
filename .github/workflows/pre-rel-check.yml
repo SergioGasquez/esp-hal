@@ -7,7 +7,7 @@ name: pre-release-checks
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [ opened, synchronize, reopened ]
   workflow_dispatch:
 
 env:
@@ -17,13 +17,15 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release-pr')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name ==
+      'pull_request' && contains(github.event.pull_request.labels.*.name,
+      'release-pr')) }}
 
     steps:
       - uses: actions/checkout@v6
 
       # Install the Rust toolchain for Xtensa devices:
-      - uses: esp-rs/xtensa-toolchain@v1.6
+      - uses: esp-rs/xtensa-toolchain@main
         with:
           version: 1.93.0.0
 
