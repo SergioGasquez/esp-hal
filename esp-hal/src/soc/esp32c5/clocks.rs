@@ -645,8 +645,14 @@ impl UartInstance {
     fn enable_function_clock_impl(self, _clocks: &mut ClockTree, en: bool) {
         let uart = match self {
             UartInstance::Uart0 => {
-                // Disabling this prevents the device from booting
-                // TODO: https://github.com/esp-rs/esp-hal/issues/4952
+                // UART0 SCLK must be kept enabled for ROM UART initialization after
+                // software reset.
+                if en {
+                    PCR::regs()
+                        .uart(0)
+                        .clk_conf()
+                        .modify(|_, w| w.sclk_en().set_bit());
+                }
                 return;
             }
             UartInstance::Uart1 => 1,

@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- ESP32-C5, ESP32-C6, ESP32-C61, ESP32-H2: keep/restore UART0 SCLK before software reset so ROM UART initialization can complete (#4952)
 - RSA: the driver should no longer cause unhandled interrupts to fire (#5443)
 - ESP32: attenuation is now correctly set for ADC2 (#5463)
 - UART: disallow 0 as the RX FIFO full threshold (#5451)

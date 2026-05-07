@@ -557,8 +557,14 @@ impl UartInstance {
     fn enable_function_clock_impl(self, _clocks: &mut ClockTree, en: bool) {
         let uart = match self {
             UartInstance::Uart0 => {
-                // At least on revision 0.1 switching SCLK off causes the chip to no longer boot.
-                // TODO: https://github.com/esp-rs/esp-hal/issues/4952
+                // UART0 SCLK must be kept enabled for ROM UART initialization after
+                // software reset.
+                if en {
+                    PCR::regs()
+                        .uart(0)
+                        .clk_conf()
+                        .modify(|_, w| w.sclk_en().set_bit());
+                }
                 return;
             }
             UartInstance::Uart1 => 1,

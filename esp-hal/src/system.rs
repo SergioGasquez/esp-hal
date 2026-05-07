@@ -368,10 +368,25 @@ pub fn software_reset() -> ! {
 }
 
 /// Resets the given CPU, leaving peripherals unchanged.
+///
+/// On some chips, SoC-specific ROM boot workarounds may update peripheral
+/// clock state required by the reset path.
 #[instability::unstable]
 #[inline]
 pub fn software_reset_cpu(cpu: Cpu) {
     crate::rom::software_reset_cpu(cpu as u32)
+}
+
+#[inline]
+pub(crate) fn apply_reset_workarounds() {
+    // UART0 SCLK is controlled by PCR and is not reset with the UART module.
+    // The affected ROMs miss enabling it when initializing the ROM UART, and
+    // will trip the LP WDT if UART0 SCLK is disabled before a software reset.
+    #[cfg(any(esp32c5, esp32c6, esp32c61, esp32h2))]
+    crate::peripherals::PCR::regs()
+        .uart(0)
+        .clk_conf()
+        .modify(|_, w| w.sclk_en().set_bit());
 }
 
 /// Retrieves the reason for the last reset as a SocResetReason enum value.

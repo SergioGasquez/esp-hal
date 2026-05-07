@@ -25,4 +25,18 @@
 
 pub use esp_rom_sys::rom::*;
 
+/// Software Reset digital core.
+#[inline(always)]
+pub fn software_reset_cpu(cpu_num: u32) {
+    crate::system::apply_reset_workarounds();
+    esp_rom_sys::rom::software_reset_cpu(cpu_num)
+}
+
+/// Software Reset digital core.
+#[inline(always)]
+pub fn software_reset() -> ! {
+    crate::system::apply_reset_workarounds();
+    esp_rom_sys::rom::software_reset()
+}
+
 pub(crate) mod regi2c;
