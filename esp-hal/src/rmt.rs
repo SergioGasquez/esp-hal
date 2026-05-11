@@ -2329,6 +2329,8 @@ mod chip_specific {
         Tx,
         WAKER,
     };
+    #[cfg(soc_has_clock_node_rmt_sclk)]
+    use crate::soc::clocks;
     use crate::{peripherals::RMT, time::Rate};
 
     pub(super) fn validate_clock(source: ClockSource, frequency: Rate) -> Result<u8, ConfigError> {
@@ -2348,7 +2350,10 @@ mod chip_specific {
 
     pub(super) fn configure_clock(source: ClockSource, div: u8) {
         #[cfg(soc_has_clock_node_rmt_sclk)]
-        let _ = source;
+        clocks::ClockTree::with(|clocks| {
+            clocks::RmtInstance::Rmt.configure_sclk(clocks, source.into());
+            clocks::RmtInstance::Rmt.request_sclk(clocks);
+        });
 
         #[cfg(not(soc_has_pcr))]
         RMT::regs().sys_conf().modify(|_, w| unsafe {
@@ -2391,6 +2396,9 @@ mod chip_specific {
                 .sys_conf()
                 .modify(|_, w| w.apb_fifo_mask().set_bit());
         }
+
+        #[cfg(soc_has_clock_node_rmt_sclk)]
+        clocks::ClockTree::with(|clocks| clocks::RmtInstance::Rmt.release_sclk(clocks));
     }
 
     #[crate::handler]

@@ -17,6 +17,8 @@ use core::task::Poll;
 
 use allocator_api2::{vec, vec::Vec};
 use embassy_futures::poll_once;
+#[cfg(soc_has_clock_node_rmt_sclk)]
+use esp_hal::clock::ll::{ClockTree, RmtInstance};
 use esp_hal::{
     Async,
     Blocking,
@@ -541,6 +543,16 @@ mod tests {
         // Fit both tx and rx data into a single memory block
         let conf = LoopbackConfig::default();
         do_rmt_loopback_async(&mut ctx, &conf).await;
+    }
+
+    #[cfg(soc_has_clock_node_rmt_sclk)]
+    #[test]
+    fn rmt_new_updates_clock_tree_sclk_frequency(mut ctx: Context) {
+        let _rmt = Rmt::new(ctx.rmt.reborrow(), FREQ).unwrap();
+
+        let sclk_hz = ClockTree::with(|_| RmtInstance::Rmt.sclk_frequency());
+
+        assert_eq!(sclk_hz, FREQ.as_hz());
     }
 
     #[test]
