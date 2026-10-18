@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- RISC-V: `InterruptExecutor::start_with_stack` polls the executor's tasks on a dedicated stack instead of the stack of the interrupted task, which may be a small esp-radio task stack
 
 ### Changed
 

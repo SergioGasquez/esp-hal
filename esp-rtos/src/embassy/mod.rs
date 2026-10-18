@@ -15,6 +15,8 @@ use esp_hal::{
 };
 use macros::ram;
 use portable_atomic::AtomicPtr;
+#[cfg(riscv)]
+use portable_atomic::AtomicUsize;
 
 use crate::{
     SCHEDULER,
@@ -314,6 +316,14 @@ impl Default for Executor {
 ///
 /// Interrupt executors have potentially lower latency than thread-mode executors, but only a
 /// limited number can be created.
+///
+/// ## Stack usage
+///
+/// An interrupt handler runs on the stack of whatever it interrupted. With [`Self::start`], the
+/// tasks of this executor are polled on the stack of the interrupted task, which may be a small
+/// stack such as one of an esp-radio task. A deep call there overflows that stack and silently
+/// corrupts the memory below it. Use [`Self::start_with_stack`] to poll the tasks on a
+/// dedicated stack instead (RISC-V only).
 pub struct InterruptExecutor<const SWI: u8> {
     executor: UnsafeCell<MaybeUninit<raw::Executor>>,
     interrupt: SoftwareInterrupt<'static, SWI>,
@@ -328,12 +338,22 @@ unsafe impl<const SWI: u8> Sync for InterruptExecutor<SWI> {}
 
 struct InterruptExecutorStorage {
     raw_executor: AtomicPtr<raw::Executor>,
+    /// Bottom of the dedicated stack, or 0 to poll on the interrupted stack.
+    #[cfg(riscv)]
+    stack_bottom: AtomicUsize,
+    /// Top of the dedicated stack.
+    #[cfg(riscv)]
+    stack_top: AtomicUsize,
 }
 
 impl InterruptExecutorStorage {
     const fn new() -> Self {
         Self {
             raw_executor: AtomicPtr::new(core::ptr::null_mut()),
+            #[cfg(riscv)]
+            stack_bottom: AtomicUsize::new(0),
+            #[cfg(riscv)]
+            stack_top: AtomicUsize::new(0),
         }
     }
 
@@ -359,10 +379,99 @@ extern "C" fn handle_interrupt<const NUM: u8>() {
         _ => unreachable!(),
     };
 
-    unsafe {
-        // SAFETY: The executor is always initialized before the interrupt is enabled.
-        let executor = INTERRUPT_EXECUTORS[NUM as usize].get();
-        executor.poll();
+    let storage = &INTERRUPT_EXECUTORS[NUM as usize];
+    // SAFETY: The executor is always initialized before the interrupt is enabled.
+    let executor = unsafe { storage.get() };
+
+    #[cfg(riscv)]
+    {
+        let stack_bottom = storage.stack_bottom.load(Ordering::Relaxed);
+        if stack_bottom != 0 {
+            // SAFETY: the stack is only used by this executor's interrupt, which cannot preempt
+            // itself. Interrupts of higher priority nest onto it and return before this call does.
+            unsafe {
+                call_on_stack(
+                    storage.stack_top.load(Ordering::Relaxed),
+                    poll_executor,
+                    NonNull::from(executor).cast(),
+                );
+            }
+
+            // SAFETY: `start_with_stack` wrote the canary at the bottom of the stack.
+            if unsafe { (stack_bottom as *const u32).read_volatile() } != STACK_CANARY {
+                panic!("InterruptExecutor {} overflowed its stack", NUM);
+            }
+            return;
+        }
+    }
+
+    unsafe { executor.poll() };
+}
+
+/// Written to the lowest word of a dedicated executor stack to detect an overflow.
+#[cfg(riscv)]
+const STACK_CANARY: u32 = 0xDEED_BAAD;
+
+#[cfg(riscv)]
+extern "C" fn poll_executor(executor: NonNull<()>) {
+    unsafe { executor.cast::<raw::Executor>().as_ref().poll() };
+}
+
+/// Calls `f(arg)` with the stack pointer set to `stack_top`, then restores the stack pointer.
+///
+/// # Safety
+///
+/// `stack_top` must be the 16-byte aligned top of memory that is not used by anything else
+/// while `f` runs.
+#[cfg(riscv)]
+#[unsafe(naked)]
+unsafe extern "C" fn call_on_stack(
+    stack_top: usize,
+    f: extern "C" fn(NonNull<()>),
+    arg: NonNull<()>,
+) {
+    core::arch::naked_asm!(
+        "
+        mv t0, sp
+        addi sp, a0, -16
+        sw ra, 12(sp)
+        sw t0, 8(sp)
+        mv a0, a2
+        jalr ra, a1, 0
+        lw ra, 12(sp)
+        lw sp, 8(sp)
+        ret
+        "
+    )
+}
+
+/// Memory for the dedicated stack of an [`InterruptExecutor`].
+#[cfg(riscv)]
+#[repr(C, align(16))]
+pub struct InterruptExecutorStack<const SIZE: usize> {
+    mem: MaybeUninit<[u8; SIZE]>,
+}
+
+#[cfg(riscv)]
+impl<const SIZE: usize> InterruptExecutorStack<SIZE> {
+    /// Creates an uninitialized stack of `SIZE` bytes.
+    pub const fn new() -> Self {
+        const {
+            ::core::assert!(
+                SIZE.is_multiple_of(16) && SIZE >= 64,
+                "The stack size must be a multiple of 16 and at least 64 bytes"
+            );
+        }
+        Self {
+            mem: MaybeUninit::uninit(),
+        }
+    }
+}
+
+#[cfg(riscv)]
+impl<const SIZE: usize> Default for InterruptExecutorStack<SIZE> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -389,7 +498,39 @@ impl<const SWI: u8> InterruptExecutor<SWI> {
     ///
     /// To obtain a [`Spawner`] for this executor, use [`Spawner::for_current_executor`]
     /// from a task running in it.
+    ///
+    /// The tasks are polled on the stack of the interrupted code, see [the stack
+    /// usage](Self#stack-usage) notes.
     pub fn start(&'static mut self, priority: Priority) -> SendSpawner {
+        self.start_inner(priority)
+    }
+
+    /// Start the executor at the given priority level, polling its tasks on `stack`.
+    ///
+    /// Works like [`Self::start`], except that the tasks no longer use the stack of the
+    /// interrupted code. Size `stack` for the deepest task poll plus the interrupt handlers of
+    /// higher priority, which nest onto it. The executor panics after a poll that overflowed
+    /// `stack`.
+    #[cfg(riscv)]
+    pub fn start_with_stack<const SIZE: usize>(
+        &'static mut self,
+        priority: Priority,
+        stack: &'static mut InterruptExecutorStack<SIZE>,
+    ) -> SendSpawner {
+        let stack_bottom = stack.mem.as_mut_ptr() as usize;
+        // SAFETY: the stack is at least 64 bytes and aligned, so its lowest word is ours.
+        unsafe { (stack_bottom as *mut u32).write_volatile(STACK_CANARY) };
+
+        let storage = &INTERRUPT_EXECUTORS[SWI as usize];
+        storage
+            .stack_top
+            .store(stack_bottom + SIZE, Ordering::Relaxed);
+        storage.stack_bottom.store(stack_bottom, Ordering::Relaxed);
+
+        self.start_inner(priority)
+    }
+
+    fn start_inner(&'static mut self, priority: Priority) -> SendSpawner {
         unsafe {
             (*self.executor.get()).write(raw::Executor::new((SWI as usize) as *mut ()));
 
