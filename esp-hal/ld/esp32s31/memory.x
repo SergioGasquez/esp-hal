@@ -23,9 +23,10 @@ MEMORY
        Flash cache has 64 KB pages. The .bin file has a 0x18-byte file header
        and each segment has a 0x08-byte segment header. This offset makes it
        simple to meet the flash cache MMU constraint (paddr % 64KB == vaddr % 64KB).
+       The MMU maps 1024 pages of 64 KB (IDROM_SEG_SIZE).
        Source: esp-idf components/esp_system/ld/esp32s31/memory.ld.in
     */
-    ROM : ORIGIN = 0x40000000 + 0x20, LENGTH = 0x400000 - 0x20
+    ROM : ORIGIN = 0x40000000 + 0x20, LENGTH = 0x4000000 - 0x20
 
     /* LP SRAM (32 KB, persists over deep sleep).
        Source: esp-idf components/esp_system/ld/esp32s31/memory.ld.in (lp_ram_seg)
