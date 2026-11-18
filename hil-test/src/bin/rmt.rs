@@ -537,18 +537,20 @@ fn do_rmt_underrun(ctx: &mut Context, tx_memsize: u8, refills_in_time: usize) {
 
     let (tx_channel, rx_channel) = ctx.setup_loopback(&conf);
 
-    let rx = rx_channel.receive(&mut rx_data).unwrap();
+    let mut rx = rx_channel.receive(&mut rx_data).unwrap();
     let start = Instant::now();
     let mut tx = tx_channel.transmit(&tx_data).unwrap();
 
-    // Poll until half a refill period after the last in-time refill, then stop.
-    if refills_in_time > 0 {
-        let stop = send_time(&tx_data[..refills_in_time * h + h / 2]);
-        while start.elapsed() < stop {
+    // Poll TX until half a refill period after the last in-time refill, then stop. RX is polled
+    // until the hardware has stopped, so that RX does not overflow.
+    let tx_stop = send_time(&tx_data[..refills_in_time * h + h / 2]);
+    let rx_stop = send_time(&tx_data[..sent]) + Duration::from_millis(20);
+    while start.elapsed() < rx_stop {
+        if refills_in_time > 0 && start.elapsed() < tx_stop {
             let _ = tx.poll();
         }
+        let _ = rx.poll();
     }
-    Delay::new().delay_micros((send_time(&tx_data[..sent]).as_micros() + 20_000) as u32);
 
     let (err, tx_channel) = tx.wait().expect_err("late refill not reported");
     assert_eq!(err, Error::TransmissionError);
@@ -594,14 +596,14 @@ fn do_rmt_underrun(ctx: &mut Context, tx_memsize: u8, refills_in_time: usize) {
 
     assert_eq!(
         position,
-        (sent % m) as isize,
-        "read position after the stop; the end marker is at {}",
+        ((sent + 1) % m) as isize,
+        "read position after the stop at the end marker at {}",
         sent % m
     );
 }
 
 // Sends data with lengths around the RAM size and its halves. Checks the output and the read
-// position after the stop at the end marker of the data.
+// position after the stop: one code after the end marker of the data.
 fn do_rmt_exact_fit(ctx: &mut Context, tx_memsize: u8) {
     let m = tx_memsize as usize * CHANNEL_RAM_SIZE;
     let h = m / 2;
@@ -631,7 +633,7 @@ fn do_rmt_exact_fit(ctx: &mut Context, tx_memsize: u8) {
         }
         assert_eq!(
             position,
-            ((tx_len - 1) % m) as isize,
+            (tx_len % m) as isize,
             "read position after {} codes; positions (len, pos): {:?}",
             tx_len,
             positions
