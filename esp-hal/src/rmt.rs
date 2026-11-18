@@ -1401,6 +1401,14 @@ where
     }
 }
 
+impl<Dm: crate::DriverMode> Channel<'_, Dm, Tx> {
+    /// Hardware read position in the channel RAM, in codes. For the push-layer test only.
+    #[doc(hidden)]
+    pub fn read_position(&self) -> isize {
+        self.raw.hw_offset()
+    }
+}
+
 impl<'ch, Dm> Channel<'ch, Dm, Tx>
 where
     Dm: crate::DriverMode,
@@ -2807,13 +2815,12 @@ mod chip_specific {
             });
         }
 
-        #[allow(unused)]
-        pub fn hw_offset(self) -> usize {
+        pub fn hw_offset(self) -> isize {
             let rmt = crate::peripherals::RMT::regs();
             let ch_idx = self.ch_idx as usize;
 
             let offset = rmt.ch_tx_status(ch_idx).read().mem_raddr_ex().bits();
-            usize::from(offset) - self.channel_ram_start_offset()
+            offset as isize - self.channel_ram_start_offset() as isize
         }
     }
 
@@ -3305,13 +3312,12 @@ mod chip_specific {
             });
         }
 
-        #[allow(unused)]
-        pub fn hw_offset(self) -> usize {
+        pub fn hw_offset(self) -> isize {
             let rmt = crate::peripherals::RMT::regs();
             let ch = self.ch_idx as usize;
 
             let offset = rmt.chstatus(ch).read().mem_raddr_ex().bits();
-            usize::from(offset) - self.channel_ram_start_offset()
+            offset as isize - self.channel_ram_start_offset() as isize
         }
     }
 

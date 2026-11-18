@@ -51,7 +51,7 @@ use esp_hal::{
         TxChannelConfig,
         TxChannelCreator,
     },
-    time::Rate,
+    time::{Duration, Instant, Rate},
     timer::timg::TimerGroup,
 };
 #[allow(unused_imports)]
@@ -489,6 +489,153 @@ fn divider_loopback_config(sclk_div: u16, ch_div: u8) -> LoopbackConfig {
         length2: 2 * step,
         idle_threshold: 20 * step,
         ..Default::default()
+    }
+}
+
+// RX blocks that capture `codes` pulse codes, or `None` if the chip has fewer free RX blocks.
+// Chips without RX wrap keep the whole frame in RX RAM.
+fn rx_blocks_for(codes: usize) -> Option<u8> {
+    if HAS_RX_WRAP {
+        return Some(1);
+    }
+    // RX uses channel 4..=7 on ESP32 and channel 2..=3 on ESP32-S2.
+    let available = if cfg!(esp32) { 4 } else { 2 };
+    let blocks = codes.div_ceil(CHANNEL_RAM_SIZE);
+    (blocks <= available).then_some(blocks as u8)
+}
+
+// Time that the hardware needs to send `codes`, at 2 us per tick.
+fn send_time(codes: &[PulseCode]) -> Duration {
+    let ticks: u64 = codes
+        .iter()
+        .map(|c| u64::from(c.length1()) + u64::from(c.length2()))
+        .sum();
+    Duration::from_micros(ticks * 2)
+}
+
+// Starts a transmission longer than the channel RAM, refills it `refills_in_time` times, then
+// stops polling. The hardware must stop at the driver's end marker, and `wait` must report it.
+// Then the channel must work again.
+fn do_rmt_underrun(ctx: &mut Context, tx_memsize: u8, refills_in_time: usize) {
+    let m = tx_memsize as usize * CHANNEL_RAM_SIZE;
+    let h = m / 2;
+    // The hardware stops after the initial fill (all of RAM but the end marker) and the refills.
+    let sent = m - 1 + refills_in_time * h;
+
+    let Some(rx_memsize) = rx_blocks_for(sent + 1) else {
+        return;
+    };
+
+    let conf = LoopbackConfig {
+        tx_len: sent + h + 4,
+        tx_memsize,
+        rx_memsize,
+        ..Default::default()
+    };
+    let tx_data = generate_tx_data(&conf);
+    let mut rx_data = vec![PulseCode::end_marker(); sent + 1];
+
+    let (tx_channel, rx_channel) = ctx.setup_loopback(&conf);
+
+    let rx = rx_channel.receive(&mut rx_data).unwrap();
+    let start = Instant::now();
+    let mut tx = tx_channel.transmit(&tx_data).unwrap();
+
+    // Poll until half a refill period after the last in-time refill, then stop.
+    if refills_in_time > 0 {
+        let stop = send_time(&tx_data[..refills_in_time * h + h / 2]);
+        while start.elapsed() < stop {
+            let _ = tx.poll();
+        }
+    }
+    Delay::new().delay_micros((send_time(&tx_data[..sent]).as_micros() + 20_000) as u32);
+
+    let (err, tx_channel) = tx.wait().expect_err("late refill not reported");
+    assert_eq!(err, Error::TransmissionError);
+    let position = tx_channel.read_position();
+
+    let (rx_count, rx_channel) = match rx.wait() {
+        Ok(res) => res,
+        Err((e, _)) => panic!("rx error {:?}", e),
+    };
+    assert_eq!(rx_count, sent, "codes sent before the stop");
+    for i in 0..sent - 1 {
+        assert!(
+            pulse_code_matches(tx_data[i], rx_data[i], conf.tolerance),
+            "code {}: tx {:?}, rx {:?}",
+            i,
+            tx_data[i],
+            rx_data[i]
+        );
+    }
+    assert!(
+        pulse_code_matches(
+            tx_data[sent - 1].with_length2(0).unwrap(),
+            rx_data[sent - 1],
+            conf.tolerance
+        ),
+        "last code: tx {:?}, rx {:?}",
+        tx_data[sent - 1],
+        rx_data[sent - 1]
+    );
+
+    // The channel works again after the underrun.
+    let again = LoopbackConfig {
+        tx_len: if HAS_RX_WRAP {
+            m * 3 / 2
+        } else {
+            (m * 3 / 2).min(rx_memsize as usize * CHANNEL_RAM_SIZE)
+        },
+        tx_memsize,
+        rx_memsize,
+        ..Default::default()
+    };
+    do_rmt_loopback_inner(&again, tx_channel, rx_channel);
+
+    assert_eq!(
+        position,
+        (sent % m) as isize,
+        "read position after the stop; the end marker is at {}",
+        sent % m
+    );
+}
+
+// Sends data with lengths around the RAM size and its halves. Checks the output and the read
+// position after the stop at the end marker of the data.
+fn do_rmt_exact_fit(ctx: &mut Context, tx_memsize: u8) {
+    let m = tx_memsize as usize * CHANNEL_RAM_SIZE;
+    let h = m / 2;
+    let mut positions = [(0usize, 0isize); 8];
+
+    for (n, &tx_len) in [m - 2, m - 1, m, m + 1, m + h - 1, m + h, m + h + 1, 2 * m]
+        .iter()
+        .enumerate()
+    {
+        let Some(rx_memsize) = rx_blocks_for(tx_len) else {
+            continue;
+        };
+        let conf = LoopbackConfig {
+            tx_len,
+            tx_memsize,
+            rx_memsize,
+            ..Default::default()
+        };
+        let (tx_channel, rx_channel) = ctx.setup_loopback(&conf);
+        let (tx_channel, _) = do_rmt_loopback_inner(&conf, tx_channel, rx_channel).unwrap();
+        positions[n] = (tx_len, tx_channel.read_position());
+    }
+
+    for (tx_len, position) in positions {
+        if tx_len == 0 {
+            continue;
+        }
+        assert_eq!(
+            position,
+            ((tx_len - 1) % m) as isize,
+            "read position after {} codes; positions (len, pos): {:?}",
+            tx_len,
+            positions
+        );
     }
 }
 
@@ -1477,5 +1624,41 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    #[timeout(5)]
+    fn rmt_push_exact_fit_1_block(mut ctx: Context) {
+        do_rmt_exact_fit(&mut ctx, 1);
+    }
+
+    #[test]
+    #[timeout(5)]
+    fn rmt_push_exact_fit_2_blocks(mut ctx: Context) {
+        do_rmt_exact_fit(&mut ctx, 2);
+    }
+
+    #[test]
+    #[timeout(3)]
+    fn rmt_push_underrun_initial_1_block(mut ctx: Context) {
+        do_rmt_underrun(&mut ctx, 1, 0);
+    }
+
+    #[test]
+    #[timeout(3)]
+    fn rmt_push_underrun_after_refill_1_block(mut ctx: Context) {
+        do_rmt_underrun(&mut ctx, 1, 1);
+    }
+
+    #[test]
+    #[timeout(3)]
+    fn rmt_push_underrun_initial_2_blocks(mut ctx: Context) {
+        do_rmt_underrun(&mut ctx, 2, 0);
+    }
+
+    #[test]
+    #[timeout(3)]
+    fn rmt_push_underrun_after_refill_2_blocks(mut ctx: Context) {
+        do_rmt_underrun(&mut ctx, 2, 1);
     }
 }
